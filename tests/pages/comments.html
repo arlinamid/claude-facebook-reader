@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Teszt csoport | Facebook</title></head><body>
+<div role="main"><h1>Teszt csoport</h1><div role="feed">
+<div aria-posinset="1"><div>
+ <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/11/">Első Szerző</a></div>
+ <a href="?__cft__[0]=A" data-swap="https://www.facebook.com/groups/1/posts/111/">3 n</a>
+ <div data-ad-rendering-role="story_message"><div dir="auto">Első poszt szövege, ez egy elég hosszú mondat a teszthez.</div></div>
+ <div><div data-ad-rendering-role="image"><a href="https://www.facebook.com/groups/1/posts/111/"><img src="https://scontent.xx.fbcdn.net/v/c.jpg" width="400" height="200" alt=""></a></div>
+  <div data-ad-rendering-role="meta"><span dir="auto">GITHUB.COM</span></div><span data-ad-rendering-role="title">Repo cím</span></div>
+ <div role="button" tabindex="0">23 hozzászólás</div>
+ <div role="button" tabindex="0" id="more1">Több hozzászólás megtekintése</div>
+</div></div>
+<div aria-posinset="2"><div>
+ <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/22/">Második Szerző</a></div>
+ <a href="?__cft__[0]=B" data-swap="https://www.facebook.com/groups/1/posts/222/">4 n</a>
+ <a href="https://www.facebook.com/photo/?fbid=555"><img src="https://scontent.xx.fbcdn.net/v/p.jpg" width="300" height="300" alt="kép"></a>
+ <div data-ad-rendering-role="story_message"><div dir="auto">Második poszt: Hasta la vista videó szöveg.</div></div>
+ <div role="button" tabindex="0" aria-haspopup="menu" id="sort2">Legrelevánsabb</div>
+ <div role="button" tabindex="0" id="more2">Több hozzászólás megtekintése</div>
+ <span aria-label="Összes reakció: 3"><span>3</span></span><div role="button"><span>13 hozzászólás</span></div>
+</div></div>
+</div></div>
+<script>
+window.__log = [];
+document.addEventListener('focusin', e => { const a = e.target.closest && e.target.closest('a[data-swap]'); if (a) a.setAttribute('href', a.dataset.swap); });
+// misfire: the expander of post 1 opens the overlay of post 2
+document.getElementById('more1').addEventListener('click', () => {
+  window.__log.push('more1');
+  const d = document.createElement('div'); d.setAttribute('role', 'dialog'); d.id = 'dlg';
+  d.innerHTML = '<h2>Második Szerző bejegyzése</h2><div data-ad-rendering-role="profile_name"><a href="/groups/1/user/22/">Második Szerző</a></div><div data-ad-rendering-role="story_message"><div dir="auto">Második poszt: Hasta la vista videó szöveg.</div></div>';
+  document.body.appendChild(d);
+});
+document.getElementById('more2').addEventListener('click', () => {
+  window.__log.push('more2');
+  const b = document.getElementById('more2');
+  const art = document.createElement('div'); art.setAttribute('role', 'article'); art.setAttribute('aria-label', 'Hozzászólás tőle: Kommentelő, 1 napja');
+  art.innerHTML = '<a href="/groups/1/user/33/">Kommentelő</a><div dir="auto">Új komment</div>';
+  b.parentElement.appendChild(art); b.remove();
+});
+document.getElementById('sort2').addEventListener('click', () => {
+  window.__log.push('sort2');
+  const m = document.createElement('div'); m.setAttribute('role', 'menu');
+  m.innerHTML = '<div role="menuitem">Legrelevánsabb</div><div role="menuitem" id="all2">Összes hozzászólás<br>Minden hozzászólás</div>';
+  document.body.appendChild(m);
+  m.querySelector('#all2').addEventListener('click', () => { document.getElementById('sort2').textContent = 'Összes hozzászólás'; m.remove(); window.__log.push('sort-all'); });
+});
+</script></body></html>

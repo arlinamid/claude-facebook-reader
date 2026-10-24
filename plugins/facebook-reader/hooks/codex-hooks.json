@@ -1,0 +1,33 @@
+{
+  "description": "Facebook Reader native Codex adapter: reader calls pass, possible Facebook writes are denied. Review and trust these hooks in Codex before relying on them.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|mcp__.*(browser_|computer|javascript|form_input|file_upload|upload_image|upload_file|set_input_files|navigate|tabs_context|tabs_create).*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/hooks/fb-codex-guard.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%/hooks/fb-codex-guard.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking Facebook Reader access"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*(navigate|browser_tabs_list|tabs_context|tabs_create).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/hooks/fb-codex-guard.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%/hooks/fb-codex-guard.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Tracking Facebook Reader tab"
+          }
+        ]
+      }
+    ]
+  }
+}

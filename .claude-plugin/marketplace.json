@@ -1,0 +1,19 @@
+{
+  "name": "arlinamid-plugins",
+  "description": "Claude plugins by arlinamid: read and navigate Facebook through your own browser (posts, comments, groups, search, Marketplace, media)",
+  "owner": {
+    "name": "arlinamid",
+    "url": "https://github.com/arlinamid"
+  },
+  "plugins": [
+    {
+      "name": "facebook-reader",
+      "source": "./plugins/facebook-reader",
+      "description": "Reads Facebook through your own logged-in browser despite DOM obfuscation: posts, comments + media, groups, search, navigation, reel/video download (yt-dlp).",
+      "version": "0.13.1",
+      "author": { "name": "arlinamid" },
+      "category": "productivity",
+      "keywords": ["facebook", "scraping", "groups", "comments", "yt-dlp", "reels", "hungarian", "browser"]
+    }
+  ]
+}

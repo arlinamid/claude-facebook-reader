@@ -1,0 +1,26 @@
+name: test
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+      - name: Build outputs are up to date (min files, parts, loader, extension)
+        run: |
+          python3 plugins/facebook-reader/skills/facebook-reader/scripts/build.py
+          git diff --exit-code -- plugins || (echo "::error::run scripts/build.py and commit the result" && exit 1)
+      - name: Regression suite (synthetic pages, hook, extension)
+        run: xvfb-run -a python3 tests/run_tests.py

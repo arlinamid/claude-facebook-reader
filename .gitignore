@@ -1,0 +1,15 @@
+node_modules/
+__pycache__/
+*.pyc
+.fb-reader.wrapped.js
+# never commit sessions or exports
+*cookies*
+*.cookie
+.env
+fb_media/
+*.fbdump.json
+prof/
+.*.tmp.js
+.*.out.js
+dist/
+artifacts/

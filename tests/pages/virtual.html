@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Virtuális hírfolyam | Facebook</title></head><body style="margin:0">
+<div role="main"><h1>Virtuális hírfolyam</h1><div role="feed" id="feed" style="position:relative;height:18000px"></div></div>
+<script>
+const N = 30, H = 600, feed = document.getElementById('feed');
+function render() {
+  const y = scrollY;
+  for (let i = 1; i <= N; i++) {
+    const top = (i - 1) * H, el = feed.querySelector('[data-i="' + i + '"]'), vis = Math.abs(top - y) < 1400;
+    if (vis && !el) {
+      const d = document.createElement('div'); d.setAttribute('aria-posinset', i); d.dataset.i = i;
+      d.style.cssText = 'position:absolute;left:0;right:0;height:560px;top:' + top + 'px';
+      d.innerHTML = '<div data-ad-rendering-role="profile_name"><a href="/groups/1/user/' + (100 + i) + '/">Szerző ' + i + '</a></div>' +
+        '<a href="?__cft__[0]=Q" data-swap="https://www.facebook.com/groups/1/posts/' + (9000 + i) + '/">' + i + ' n</a>' +
+        '<div data-ad-rendering-role="story_message"><div dir="auto">Virtuális poszt száma ' + i + ' szöveg</div></div>';
+      feed.appendChild(d);
+    } else if (!vis && el) el.remove();
+  }
+}
+addEventListener('scroll', render); render();
+document.addEventListener('focusin', e => { const a = e.target.closest && e.target.closest('a[data-swap]'); if (a) a.setAttribute('href', a.dataset.swap); });
+</script></body></html>

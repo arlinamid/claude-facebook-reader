@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Facebook</title></head><body>
+<div role="main"><h1>Saját Oldalam</h1></div>
+<div role="dialog" aria-label="Poszt">
+ <h2>Gergő bejegyzése</h2>
+ <div data-ad-rendering-role="profile_name"><a href="/gergo.minta/">Gergő Minta</a></div>
+ <div data-ad-rendering-role="story_message"><div dir="auto">Ez a poszt szövege, elég hosszú a teszthez, hogy felismerje.</div></div>
+ <div id="gallery"><img src="https://scontent.xx.fbcdn.net/v/p0.jpg" width="300" height="200" alt=""><img src="https://scontent.xx.fbcdn.net/v/p1.jpg" width="300" height="200" alt=""><img src="https://scontent.xx.fbcdn.net/v/p2.jpg" width="300" height="200" alt=""><img src="https://scontent.xx.fbcdn.net/v/p3.jpg" width="300" height="200" alt=""><img src="https://scontent.xx.fbcdn.net/v/p4.jpg" width="300" height="200" alt=""><img src="https://scontent.xx.fbcdn.net/v/p5.jpg" width="300" height="200" alt=""></div>
+ <div role="button" aria-label="Tetszik">Tetszik</div><div role="button" aria-label="Hozzászólás írása">Hozzászólás</div>
+ <div role="button" tabindex="0" aria-haspopup="menu" id="sortr">A legrelevánsabbak</div>
+ <div id="thread">
+  <div role="article" aria-label="Első Kommentelő hozzászólása (3 napja)"><a href="/u/1/">Első Kommentelő</a><div dir="auto">Szia, ez az első komment.</div>
+    <div role="button" tabindex="0">Válasz</div></div>
+  <div role="article" aria-label="Minta Tamás hozzászólása (2 napja)"><a href="/u/2/">Minta Tamás</a><div dir="auto">Tamás kommentje, amire válaszolunk.</div>
+    <div role="button" tabindex="0" id="reply-tamas">Válasz</div></div>
+  <div id="slot-tamas"></div>
+  <div role="article" aria-label="Harmadik Kommentelő hozzászólása (1 napja)"><a href="/u/3/">Harmadik Kommentelő</a><div dir="auto">Harmadik komment.</div>
+    <div role="button" tabindex="0" id="reply-third">Válasz</div></div>
+  <div id="slot-third"></div>
+ </div>
+ <div id="main-composer">
+  <div contenteditable="true" role="textbox" aria-label="Hozzászólás írása…" id="main-box"></div>
+  <div role="button" aria-label="Emoji beszúrása"><svg width="8" height="8"></svg></div>
+  <div role="button" aria-label="Fotó vagy videó csatolása"><svg width="8" height="8"></svg></div>
+ </div>
+</div>
+<script>
+// "Válasz" opens a reply box right under that comment; FB writes the addressee's name into it as a mention
+function openReply(slotId, name) {
+  const s = document.getElementById(slotId);
+  if (s.firstChild) return;
+  s.innerHTML = '<div class="rc"><div contenteditable="true" role="textbox" aria-label="Válasz mint Elek Teszt" tabindex="0"><span>' + name + '</span>&nbsp;</div>'
+    + '<div role="button" aria-label="Emoji beszúrása"><svg width="8" height="8"></svg></div>'
+    + '<div role="button" aria-label="Fotó csatolása"><svg width="8" height="8"></svg></div>'
+    + '<div role="button" aria-label="Hozzászólás GIF-fel"><svg width="8" height="8"></svg></div>'
+    + '<div role="button" aria-label="Hozzászólás matricával"><svg width="8" height="8"></svg></div>'
+    + '<div role="button" aria-label="Válasz küldése" aria-disabled="true"><svg width="8" height="8"></svg></div></div>';
+}
+document.getElementById('reply-tamas').addEventListener('click', () => openReply('slot-tamas', 'Minta Tamás'));
+document.getElementById('reply-third').addEventListener('click', () => openReply('slot-third', 'Harmadik Kommentelő'));
+document.getElementById('sortr').addEventListener('click', () => {
+  const m = document.createElement('div'); m.setAttribute('role', 'menu');
+  m.innerHTML = '<div role="menuitem">A legrelevánsabbak<br>Az ismerőseid hozzászólásai</div><div role="menuitem">A legújabbak<br>Az összes…</div><div role="menuitem" id="allr">Az összes hozzászólás<br>Az összes hozzászólás megjelenítése</div>';
+  document.body.appendChild(m);
+  m.querySelector('#allr').addEventListener('click', () => { document.getElementById('sortr').textContent = 'Az összes hozzászólás'; m.remove(); });
+});
+</script></body></html>

@@ -1,0 +1,33 @@
+{
+  "description": "facebook-reader write guard: every action that could post, comment, reply, message, react, join, approve, delete, type, press Enter, upload or attach media on Facebook needs explicit user approval; typed text must match the approved draft; all writes are audit-logged.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__.*(computer|javascript|form_input|file_upload|upload_image|browser_batch).*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/fb-write-guard.mjs\"", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/fb-write-guard.mjs\" --bash", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*(navigate|tabs_context|tabs_create).*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/fb-write-guard.mjs\" --track", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "mcp__.*(computer|javascript|form_input|file_upload|upload_image|browser_batch).*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/fb-write-guard.mjs\" --post", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

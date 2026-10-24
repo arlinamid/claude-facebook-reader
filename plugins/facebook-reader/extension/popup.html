@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>facebook-reader</title>
+<style>
+:root{--bg:#fff;--fg:#1c1e21;--mut:#65676b;--line:#dadde1;--acc:#1b74e4;--warn:#b45309}
+@media (prefers-color-scheme:dark){:root{--bg:#18191a;--fg:#e4e6eb;--mut:#b0b3b8;--line:#3a3b3c;--acc:#4599ff;--warn:#fbbf24}}
+body{margin:0;width:340px;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif}
+header{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+header b{font-size:14px}main{padding:10px 12px}
+label{display:flex;align-items:center;gap:8px;margin:6px 0}
+.mut{color:var(--mut);font-size:12px}
+ul{list-style:none;margin:8px 0;padding:0}li{padding:6px 0;border-top:1px solid var(--line)}
+li .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flag{color:var(--warn)}
+button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+button.sec{background:transparent;color:var(--acc);border:1px solid var(--line)}
+select,input[type=number]{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;font:inherit}
+</style></head><body>
+<header><b>facebook-reader</b><span class="mut" id="ver"></span></header>
+<main>
+  <label><input type="checkbox" id="enabled"> Háttérellenőrzés <span class="mut">(alapból ki)</span></label>
+  <div class="mut" id="hint">Bekapcsolva ~20 percenként legfeljebb egy esedékes hirdetést néz meg háttérlapon, csak olvasva. Éjjel nem fut.</div>
+  <label>Ellenőrzés gyakorisága <select id="intervalHours"><option value="3">3 óra</option><option value="6">6 óra</option><option value="12">12 óra</option><option value="24">naponta</option></select></label>
+  <label><input type="checkbox" id="notify"> Értesítés változáskor</label>
+  <div style="display:flex;gap:8px;margin:8px 0"><button id="now">Egy ellenőrzése most</button><button class="sec" id="clear">Jelvény törlése</button></div>
+  <div id="status" class="mut"></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:10px 0">
+  <b>Értesítés- és Messenger-figyelés</b> <span class="mut">(alapból ki)</span>
+  <label><input type="checkbox" id="watchNotifs"> 🔔 Új értesítések jelzése</label>
+  <label><input type="checkbox" id="watchMsgs"> ✉ Új Messenger-üzenetek jelzése</label>
+  <div class="mut">Csak az olvasatlan-számlálókat nézi (a fejlécben). Nem nyit meg szálat (nincs „Látta" jelzés), nem tölti be az Értesítések oldalt, üzenet- vagy értesítés-szöveget nem olvas és nem tárol. Ha van nyitott Facebook-lapod, azt nézi; ha nincs, ritkán nyit egy háttérlapot.</div>
+  <label>Háttérlap legfeljebb <select id="watchEveryMin"><option value="15">15 percenként</option><option value="30">30 percenként</option><option value="60">óránként</option><option value="120">2 óránként</option></select></label>
+  <div style="display:flex;gap:8px;margin:8px 0"><button id="wnow" class="sec">Számlálók most</button></div>
+  <div id="wstatus" class="mut"></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:10px 0">
+  <b>Követett hirdetések</b><ul id="list"></ul>
+  <div class="mut">A követést Claude kéri (trackAdd); itt csak látod. Az adatok csak ebben a böngészőben vannak.</div>
+</main>
+<script src="popup.js"></script></body></html>

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Példa Stúdió | Facebook</title></head><body>
+<div role="main"><h1>Példa Stúdió</h1><div role="feed">
+<div aria-posinset="1"><div>
+ <div data-ad-rendering-role="profile_name"><a href="/profile.php?id=100000000000001">Példa Stúdió</a></div>
+ <a href="https://www.facebook.com/100000000000001/posts/pfbid0ABC123/?__cft__[0]=x" aria-label="2 ó.">2 ó.</a>
+ <div data-ad-rendering-role="story_message"><div dir="auto">🎉 12.500 FOLLOWER! Köszönjük mindenkinek!</div></div>
+ <img src="https://scontent.xx.fbcdn.net/v/t39/p.jpg?_nc_cat=1&oh=abc&oe=def" width="500" height="500" alt="Lehet, hogy egy kép erről: 1 személy és szöveg, amely így szól: „12.500 FOLLOWER”">
+ <div><div role="button" data-ad-rendering-role="like_button" id="likeBtn" style="display:inline-block;width:80px;height:30px">Tetszik</div>
+ <div role="button" data-ad-rendering-role="comment_button">Hozzászólás</div></div>
+ <div role="button">63</div><div role="button">13</div><div role="button">2</div>
+ <div role="article" aria-label="Példa Stúdió hozzászólása (2 órája)">
+   <a href="/profile.php?id=100000000000001&comment_id=1">Példa Stúdió</a>
+   <span>Felül rögzített hozzászólás</span><span>Szerző</span>
+   <div dir="auto" id="pc">FEMALE IDENTITY REFERENCE: hyperrealistic portrait, 85mm, soft light…</div><div role="button" id="pcmore">Továbbiak</div>
+   <a href="https://www.facebook.com/100000000000001/posts/pfbid0ABC123/?comment_id=1" aria-label="2026. október 23., péntek 10:00">2 ó.</a>
+ </div>
+ <div role="article" aria-label="Kiss Péter hozzászólása (1 órája)"><a href="/kiss.peter?comment_id=2">Kiss Péter</a><div dir="auto">Gratulálok!</div></div>
+ <div><div contenteditable="true" role="textbox" aria-label="Hozzászólás mint Teszt Elek" style="min-height:20px"></div><div role="button" aria-label="Hozzászólás">➤</div></div>
+</div></div>
+</div></div>
+<script>
+document.getElementById('pcmore').addEventListener('click', e => { document.getElementById('pc').innerText = 'FEMALE IDENTITY REFERENCE: hyperrealistic portrait, 85mm, soft light, freckles, green eyes, studio backdrop, --ar 4:5'; e.target.remove(); });
+document.getElementById('likeBtn').addEventListener('mouseover', () => {
+  if (document.getElementById('rbar')) return;
+  const bar = document.createElement('div'); bar.id='rbar'; bar.setAttribute('role','toolbar'); bar.style.cssText='position:fixed;top:10px;left:10px';
+  for (const n of ['Tetszik','Imádom','Törődöm','Haha','Hűha','Szomorú','Dühös']) { const b=document.createElement('div'); b.setAttribute('role','button'); b.setAttribute('aria-label', n); b.style.cssText='display:inline-block;width:30px;height:30px'; b.textContent='•'; bar.appendChild(b); }
+  document.body.appendChild(bar);
+});
+</script></body></html>
