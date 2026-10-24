@@ -8,13 +8,24 @@ Outputs (all next to this file):
   fb-reader.loader.js       ~1.3 KB loader — run after every page load with `await`
 """
 import hashlib
+import io
 import json
 import pathlib
 import re
+import shutil
 import subprocess
+import sys
+
+# Windows' legacy console codepage (e.g. cp1250) can't print the ≤ used in the summary below; UTF-8 output
+# is always safe to request explicitly, independent of what the terminal's active codepage happens to be.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 here = pathlib.Path(__file__).resolve().parent
-TERSER = ['npx', '-y', 'terser@5.31.0', '-c', 'passes=2', '-m', '--comments', 'false']
+# Windows' CreateProcess needs the exact executable name (npx.cmd), unlike POSIX exec*: without shell=True,
+# subprocess.run(['npx', …]) silently fails to find it there even though it is on PATH.
+NPX = shutil.which('npx.cmd') and 'npx.cmd' or shutil.which('npx') and 'npx' or 'npx'
+TERSER = [NPX, '-y', 'terser@5.31.0', '-c', 'passes=2', '-m', '--comments', 'false']
 
 
 def iife_body(src: str) -> str:

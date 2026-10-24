@@ -6,8 +6,13 @@
 Covers: build freshness, loader / chunked install / cache restore, extension (MAIN world, CSP), extraction,
 pinned comments, target tags, selfTest + snapshot round trip, write-guard hook (ask / deny / allow, audit).
 """
-import hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+import hashlib, io, json, os, pathlib, re, subprocess, sys, tempfile
 from playwright.sync_api import sync_playwright
+
+# Windows' legacy console codepage (e.g. cp1250) can't print every accented character this suite uses in
+# its check names/output; UTF-8 output is always safe to request explicitly.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / 'plugins' / 'facebook-reader'
@@ -41,9 +46,9 @@ check('plugin.json version', json.loads(read(PLUGIN / '.claude-plugin' / 'plugin
 mk = json.loads(read(ROOT / '.claude-plugin' / 'marketplace.json'))
 check('marketplace.json version', mk['plugins'][0].get('version', ver) == ver)
 
-_ps = subprocess.run([sys.executable, str(ROOT / 'tests' / 'privacy_scan.py')], capture_output=True, text=True)
+_ps = subprocess.run([sys.executable, str(ROOT / 'tests' / 'privacy_scan.py')], capture_output=True, text=True, encoding='utf-8')
 check('privacy scan: no e-mails, absolute user paths, real-looking ids, FB slugs or secrets in the repo', _ps.returncode == 0, _ps.stdout[-600:])
-_cx = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_codex_hooks.py'], capture_output=True, text=True, cwd=ROOT)
+_cx = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_codex_hooks.py'], capture_output=True, text=True, encoding='utf-8', cwd=ROOT)
 check('Codex adapter + manifests: unittest (deny instead of ask, no Claude tokens, one shared guard)', _cx.returncode == 0, (_cx.stderr or '')[-800:])
 
 LOADER = read(S / 'fb-reader.loader.js').strip()
@@ -93,9 +98,9 @@ with sync_playwright() as p:
     check('loader before install says NINCS TELEPÍTVE', 'NINCS TELEPÍTVE' in pg.evaluate(f'(async()=>{{return {LOADER}}})()'))
     out = ''
     for part in PARTS:
-        out = pg.evaluate(part.read_text())
+        out = pg.evaluate(part.read_text(encoding='utf-8'))
     check('chunked install runs the core', 'betöltve' in str(out), out)
-    pg.evaluate((S / 'fb-reader-write.min.js').read_text())
+    pg.evaluate((S / 'fb-reader-write.min.js').read_text(encoding='utf-8'))
     pg.goto(FBURL + '&x=1')
     r = pg.evaluate(f'(async()=>{{return {LOADER}}})()')
     check('loader after navigation: cache OK + write module', 'cache OK' in r and 'írási modul: van' in r, r)
@@ -260,6 +265,39 @@ with sync_playwright() as p:
     md = ev(f"__fbReader.map({{date:'{day}'}})")
     check('map({date}) keeps only posts whose rounding window contains the day', 'Első' in md and 'Második' not in md, f'{day}: {md}')
     check('map({date}) rejects a bad date format', "map({date:" in ev("__fbReader.map({date:'tegnap'})"))
+
+    # ── 3c-bis. the main reported bug: two posts with an identical author + first 60 chars must not collide
+    # once they each carry their own postId (the hash is keyed by postId first, not by content) ──
+    same_text = 'Azonos kezdetű poszt mindkettőnél, hogy ütközzön a tartalom-hash.'
+    collide_ids = (
+        '<div aria-posinset="90"><div><div data-ad-rendering-role="profile_name"><a href="/groups/123/user/901/">Ütköző Szerző</a></div>'
+        '<a href="https://www.facebook.com/groups/123/posts/9001/">90 perce</a>'
+        f'<div data-ad-rendering-role="story_message"><div dir="auto">{same_text}</div></div></div></div>'
+        '<div aria-posinset="91"><div><div data-ad-rendering-role="profile_name"><a href="/groups/123/user/901/">Ütköző Szerző</a></div>'
+        '<a href="https://www.facebook.com/groups/123/posts/9002/">80 perce</a>'
+        f'<div data-ad-rendering-role="story_message"><div dir="auto">{same_text}</div></div></div></div>')
+    state['p'] = f'<!doctype html><html><body><div role="main"><h1>Ütköző posztok</h1><div role="feed">{collide_ids}</div></div></body></html>'
+    pg.goto(FBURL); pg.wait_for_timeout(300)
+    mc = ev('__fbReader.map()')
+    ids = re.findall(r'^([0-9a-z]{4})', mc, re.M)
+    check('identical-start posts with different postId get different, non-colliding anchors', len(ids) == 2 and ids[0] != ids[1], mc)
+    check("map() reports no 'horgony nem stabil' warning when postId disambiguates", 'horgony nem stabil' not in mc, mc)
+    # keyed by postId, not by DOM render order: a full reload (fresh in-memory session) must reproduce the same anchors
+    pg.goto(FBURL); pg.wait_for_timeout(300)
+    ids2 = re.findall(r'^([0-9a-z]{4})', ev('__fbReader.map()'), re.M)
+    check('postId-based anchor is stable across a full reload (fresh session)', ids == ids2, f'{ids} → {ids2}')
+    # and it survives moving from the feed to the post's own permalink page (no aria-posinset there) — the
+    # original bug report's exact repro ("#w3ar on the profile, #w1g3 again on the permalink")
+    solo_post = (
+        '<div role="article"><div data-ad-rendering-role="profile_name"><a href="/groups/123/user/901/">Ütköző Szerző</a></div>'
+        '<a href="https://www.facebook.com/groups/123/posts/9002/">80 perce</a>'
+        f'<div data-ad-rendering-role="story_message"><div dir="auto">{same_text}</div></div></div>')
+    state['p'] = f'<!doctype html><html><body><div role="main"><h1>Poszt</h1>{solo_post}</div></body></html>'
+    pg.goto('https://www.facebook.com/groups/123/posts/9002/'); pg.wait_for_timeout(300)
+    solo = ev('__fbReader.map()')
+    id_solo = re.findall(r'^([0-9a-z]{4})', solo, re.M)
+    check('the SAME post keeps the SAME anchor on its own permalink page as in the feed', id_solo == [ids[1]], f'feed:{ids[1]} permalink:{solo}')
+
     state['p'] = 'photopage'
     pg.goto('https://www.facebook.com/photo/?fbid=555'); pg.wait_for_timeout(400)
     check('nav.photoPost() finds "Bejegyzés megtekintése"', ev('__fbReader.nav.photoPost()').split('?')[0].endswith('/groups/1/posts/222/'), ev('__fbReader.nav.photoPost()'))
@@ -732,8 +770,8 @@ env = dict(os.environ, HOME=home, USERPROFILE=home, TMPDIR=tmp, TEMP=tmp, TMP=tm
 
 
 def run(script, ev=None, args=()):
-    r = subprocess.run(['node', str(HOOKS / script), *args], input=json.dumps(ev) if ev is not None else None, capture_output=True, text=True, env=env)
-    return r.stdout.strip()
+    r = subprocess.run(['node', str(HOOKS / script), *args], input=json.dumps(ev) if ev is not None else None, capture_output=True, text=True, encoding='utf-8', env=env)
+    return (r.stdout or '').strip()
 
 
 def hook(ev, *a):
@@ -765,7 +803,7 @@ check('bash fb-approve → ask', hook({'tool_name': 'Bash', 'tool_input': {'comm
 check('bash tampering with the approval file → ask', hook({'tool_name': 'Bash', 'tool_input': {'command': 'echo {} > /tmp/fb-reader-approval.json'}}, '--bash') == 'ask')
 check('bash ls → pass', hook({'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}, '--bash') == 'pass')
 for f in [S / 'fb-reader.loader.js', S / 'fb-reader-write.min.js', PARTS[-1]]:
-    check(f'own bundle passes silently: {f.name}', hook({'tool_name': J, 'tool_input': {'text': f.read_text()}}) == 'pass')
+    check(f'own bundle passes silently: {f.name}', hook({'tool_name': J, 'tool_input': {'text': f.read_text(encoding='utf-8')}}) == 'pass')
 check('safe API call passes', hook({'tool_name': J, 'tool_input': {'text': "JSON.stringify(await __fbReader.react('love'))"}}) == 'pass')
 check('inbox API calls pass', hook({'tool_name': J, 'tool_input': {'text': "[__fbReader.inbox(), __fbReader.notifs({unread:true}), __fbReader.msgs(), __fbReader.msgThread(), JSON.stringify(__fbReader.msgSearch())].join('\\n')"}}) == 'pass')
 hook({'tool_name': 'mcp__claude-in-chrome__navigate', 'tool_input': {'url': 'https://www.messenger.com/t/222', 'tabId': 9}, 'tool_response': 'ok'}, '--track')
@@ -865,7 +903,7 @@ check('market API calls pass', hook({'tool_name': J, 'tool_input': {'text': "[__
 check('tracking + selling API calls pass', hook({'tool_name': J, 'tool_input': {'text': "[__fbReader.trackAdd(), __fbReader.trackList(), __fbReader.trackCheck(), __fbReader.trackRemove('m1'), __fbReader.myListings(), __fbReader.priceCheck({price:1}), JSON.stringify(__fbReader.sellCheck()), __fbReader.sellReport()].join('\\n')"}}) == 'pass')
 check('raw .click() → ask', hook({'tool_name': J, 'tool_input': {'text': 'document.querySelector("button").click()'}}) == 'ask')
 log = pathlib.Path(home) / '.fb-reader' / 'audit.log'
-events = [json.loads(l)['event'] for l in log.read_text().splitlines()] if log.exists() else []
+events = [json.loads(l)['event'] for l in log.read_text(encoding='utf-8').splitlines()] if log.exists() else []
 check('audit log has approvals, decisions and executions', {'approval', 'decision', 'executed'} <= set(events), str(set(events)))
 
 print()

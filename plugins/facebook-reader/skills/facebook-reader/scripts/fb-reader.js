@@ -21,7 +21,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.13.1';
+  const VERSION = '0.13.2';
   const BUILD = '__BUILD__'; // replaced by build.py with a content hash
 
   // ── Selectors (semantic anchors only) ────────────────────────────────────
@@ -857,7 +857,11 @@
     else if (/\/search\//.test(p)) type = 'search';
     else if (p === '/' || p === '') type = 'home';
     else type = 'profile-or-page';
-    const h1 = [...document.querySelectorAll('[role="main"] h1, h1')].map(h => (h.innerText || '').trim()).find(t => t && t.length < 120);
+    // only a VISIBLE h1 counts: FB litters the page with screen-reader-only landmark headings (e.g. "Értesítések"
+    // for the notification bell region, usually clipped to ~1px) that would otherwise win just by DOM order
+    const h1 = [...document.querySelectorAll('[role="main"] h1, h1')]
+      .filter(h => { const r = h.getBoundingClientRect(); return r.width > 10 && r.height > 10 && isShown(h); })
+      .map(h => (h.innerText || '').trim()).find(t => t && t.length < 120);
     const loggedOut = !!document.querySelector('#login_form, [data-testid="royal_login_button"], form[action*="login"]');
     let warning = null;
     if (/\/checkpoint\//.test(p)) warning = 'Facebook biztonsági ellenőrzés (checkpoint) — a felhasználónak kell feloldania a saját böngészőjében';
@@ -988,7 +992,7 @@
   async function setCommentSort(mode = 'all', { post } = {}) {
     const want = SORT_RE[mode];
     if (!want) return { error: "mode: 'all' | 'newest' | 'relevant'" };
-    const root = resolvePost(post);
+    const root = await resolveLive(post);
     if (!root) return { error: post === undefined ? 'nincs poszt a nézetben' : `nincs ilyen poszt: ${post}` };
     const trig = [...root.querySelectorAll('[role="button"], div[tabindex="0"]')]
       .filter(b => SORT_ANY.test(unsalt(b.innerText || '').trim()) && (!b.closest(SEL.article) || b.closest(SEL.article) === root))
@@ -1019,7 +1023,7 @@
     let roots;
     if (post === 'all') roots = findPostRoots(scope);
     else {
-      const r = resolvePost(post);
+      const r = await resolveLive(post);
       if (!r) return { clicked: 0, done: true, error: post === undefined ? 'nincs poszt a nézetben' : `nincs ilyen poszt: ${post} — map() listázza az elérhetőket` };
       roots = [r];
     }
@@ -1049,7 +1053,14 @@
         await sleep(300);
         const fresh = findPostRoots().filter(r => (r.matches?.(SEL.dialog) || r.closest?.(SEL.dialog)) && !dlgBefore.has(r));
         for (const d of fresh) {
-          let got = null; try { got = extractPost(d); } catch (e) { /* unreadable overlay */ }
+          let got = null;
+          // the overlay's own content (text, postId) can still be loading right after it opens — wait rather
+          // than report a false mismatch from comparing against an empty snippet
+          for (let tries = 0; tries < 4; tries++) {
+            try { got = extractPost(d); } catch (e) { got = null; }
+            if (got && (got.postId || got.text)) break;
+            await sleep(300);
+          }
           if (got && !samePost(want, got)) return { clicked: total, done: true, error: 'modal-mismatch', opened: `${got.author || '?'}: ${(got.text || '').slice(0, 40)}`, hint: 'más poszt overlay-e nyílt meg: zárd be (Escape), majd go(\'#horgony\') és újra' };
         }
       }
@@ -1100,7 +1111,7 @@
     const results = [];
     const t0 = Date.now(), x0 = scrollX, y0 = scrollY;
     let roots;
-    if (post !== undefined) { const r = resolvePost(post); if (!r) return { datesFixed: 0, permalinksRevealed: 0, done: true, error: `nincs ilyen poszt: ${post}` }; roots = [r]; }
+    if (post !== undefined) { const r = await resolveLive(post); if (!r) return { datesFixed: 0, permalinksRevealed: 0, done: true, error: `nincs ilyen poszt: ${post}` }; roots = [r]; }
     else roots = findPostRoots().slice(0, limit);
     try {
       for (const root of roots) {
@@ -1204,9 +1215,21 @@
   const clipS = (v, n) => { const t = String(v ?? '').replace(/https?:\/\/\S*(?:fbcdn\.net|scontent|fbsbx\.com)\S*/gi, '[cdn]').replace(/\s+/g, ' ').trim(); return n && t.length > n ? t.slice(0, n - 1) + '…' : t; };
   const domOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
   const contentKey = p => `${fold(p.author)}|${fold(p.text || p.sharedText || '').slice(0, 60) || fold(p.images?.[0]?.alt || '').slice(0, 40) || (p.hasVideo ? 'video' : (p.cards?.[0]?.url || ''))}`;
+  // localStorage can silently drop a freshly written key (observed in testing, root cause uncertain — see
+  // selfTest().storagePersistent). Verify the write by reading it back; on failure (exception or mismatch)
+  // fall back to sessionStorage, which at least survives for the tab's lifetime instead of losing the data.
+  const storeSet = (key, value) => {
+    try { localStorage.setItem(key, value); if (localStorage.getItem(key) === value) return true; } catch (e) { /* tiltva / teli */ }
+    try { sessionStorage.setItem(key, value); return true; } catch (e) { return false; }
+  };
+  const storeGet = key => {
+    try { const v = localStorage.getItem(key); if (v != null) return v; } catch (e) { /* ignore */ }
+    try { return sessionStorage.getItem(key); } catch (e) { return null; }
+  };
+  const storeRemove = key => { try { localStorage.removeItem(key); } catch (e) { /* ignore */ } try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ } };
   const SEEN_KEY = 'fb-reader:seen';
-  const seenSet = () => { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); } catch (e) { return new Set(); } };
-  const markSeen = hs => { try { const s = seenSet(); hs.forEach(h => s.add(h)); localStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-3000))); } catch (e) { /* storage tiltva */ } };
+  const seenSet = () => { try { return new Set(JSON.parse(storeGet(SEEN_KEY) || '[]')); } catch (e) { return new Set(); } };
+  const markSeen = hs => { try { const s = seenSet(); hs.forEach(h => s.add(h)); storeSet(SEEN_KEY, JSON.stringify([...s].slice(-3000))); } catch (e) { /* storage tiltva */ } };
   const ago = p => {
     if (!p.date) return clipS(p.dateRaw, 9) || '?';
     const m = Math.round((Date.now() - new Date(p.date).getTime()) / 60000);
@@ -1225,16 +1248,32 @@
   const scrollPct = () => Math.round(100 * scrollY / Math.max(1, document.documentElement.scrollHeight - innerHeight));
 
   // A poszt-sorok (DOM + harvest-tár) horgonyokkal. live=false → már kigörgetett, csak a tárban van.
-  const rootAnchor = new WeakMap(); // root element → {key, anchor}
+  // Horgony elsődlegesen a poszt saját postId-jéből (pfbid / numerikus) képződik: ez ugyanaz marad a
+  // hírfolyamban, az overlay-ben, a permalinkoldalon és a harvest tárban is. postId nélkül tartalom-hash
+  // a kulcs (szerző + szöveg eleje), ütközésnél a stabil aria-posinset-tel megkülönböztetve, végső
+  // tartalékként egy futó számlálóval — ez utóbbi (azonos kezdetű, postId nélküli posztoknál) nem
+  // garantáltan stabil ugyanazon oldal két betöltése közt, ezért a feedRows().unstable számolja, a map()
+  // pedig jelzi.
+  const rootAnchor = new WeakMap(); // root element → {key, anchor, id}
   function feedRows() {
     const rows = [], used = new Set(), liveKeys = new Set();
+    let unstable = 0;
     const give = (p, root) => {
-      const k = contentKey(p); let h = hashStr(k), n = 0;
+      const k = contentKey(p), id = p.postId || null;
       const prev = root && rootAnchor.get(root);
-      // FB fills a post's text in late: the same DOM node keeps its anchor while its key only grows/shrinks (same author, same text start)
-      if (prev && prev.k.split('|')[0] === k.split('|')[0] && (k.startsWith(prev.k) || prev.k.startsWith(k) || k.split('|')[1].slice(0, 12) === prev.k.split('|')[1].slice(0, 12)) && !used.has(prev.h)) h = prev.h;
-      else while (used.has(h)) h = hashStr(k + '#' + (++n));
-      if (root) rootAnchor.set(root, { k, h });
+      let h, n = 0;
+      if (id) {
+        h = hashStr('p' + id);
+        while (used.has(h)) h = hashStr('p' + id + '#' + (++n)); // azonos postId-nak elvileg nem lenne szabad kétszer előfordulnia
+      } else if (prev && !prev.id && prev.k.split('|')[0] === k.split('|')[0] && (k.startsWith(prev.k) || prev.k.startsWith(k) || k.split('|')[1].slice(0, 12) === prev.k.split('|')[1].slice(0, 12)) && !used.has(prev.h)) {
+        // FB fills a post's text in late: the same DOM node keeps its anchor while its key only grows/shrinks (same author, same text start)
+        h = prev.h;
+      } else {
+        h = hashStr(k);
+        if (used.has(h) && p.position != null) h = hashStr(k + '#pos' + p.position); // aria-posinset stabil akkor is, ha egy korábbi poszt kikerül a DOM-ból
+        if (used.has(h)) { unstable++; while (used.has(h)) h = hashStr(k + '#' + (++n)); }
+      }
+      if (root) rootAnchor.set(root, { k, h, id });
       used.add(h); return h;
     };
     for (const root of findPostRoots()) {
@@ -1246,7 +1285,9 @@
     const off = [];
     for (const p of harvest.store.values()) if (!liveKeys.has(contentKey(p))) off.push({ h: give(p), p, root: null, live: false });
     off.sort((a, b) => (a.p.position || 0) - (b.p.position || 0));
-    return off.concat(rows);
+    const result = off.concat(rows);
+    result.unstable = unstable;
+    return result;
   }
   function pick(ref) {
     const rows = feedRows();
@@ -1327,6 +1368,7 @@
     const { limit = 12, offset = 0, w = 55, maxChars = 900, unseen = false, ads = false, author = null, by = null, date = null } = opts;
     const seen = seenSet(), pg = pageInfo();
     let rows = feedRows();
+    const unstable = rows.unstable || 0;
     const adN = rows.filter(r => r.p.sponsored).length;
     if (!ads) rows = rows.filter(r => !r.p.sponsored);
     if (author) rows = rows.filter(r => fold(r.p.author).includes(fold(author)));
@@ -1340,7 +1382,7 @@
     }
     const total = rows.length, newN = rows.filter(r => !seen.has(r.h)).length;
     if (unseen) rows = rows.filter(r => !seen.has(r.h));
-    const meta = `${pg.type} · új ${newN}/${total}${dayNote}${adN && !ads ? ` · hirdetés kihagyva ${adN}` : ''} · ${scrollPct()}%`;
+    const meta = `${pg.type} · új ${newN}/${total}${dayNote}${adN && !ads ? ` · hirdetés kihagyva ${adN}` : ''}${unstable ? ` · ⚠ ${unstable} poszt azonos kezdettel, a horgony nem stabil` : ''} · ${scrollPct()}%`;
     if (!total) return `map ${pg.type} · nincs poszt a DOM-ban / tárban — görgess, navigálj, vagy selfTest()${pg.warning ? ' · ⚠ ' + pg.warning : ''}`;
     if (by === 'author') {
       const g = new Map();
@@ -1375,7 +1417,7 @@
     const cs = comments ? withComments(row) : [];
     if (cs.length) {
       const idx = cs.map((c, i) => ({ c, i })).sort((a, b) => ((b.c.pinned || b.c.isAuthor ? 1 : 0) - (a.c.pinned || a.c.isAuthor ? 1 : 0)) || a.i - b.i).slice(0, comments);
-      for (const { c, i } of idx) L.push(`💬 c${i + 1}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''} ${clipS(c.author, 16)}: ${clipS(c.text || (c.media?.length ? '[média]' : ''), cchars)}`);
+      for (const { c, i } of idx) L.push(`💬 c${i + 1}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''}${c.dateConflict ? '⚠' : ''} ${clipS(c.author, 16)}: ${clipS(c.text || (c.media?.length ? '[média]' : ''), cchars)}`);
       const rest = (p.counts?.comments ?? cs.length) - idx.length;
       if (rest > 0) L.push(`💬 +${rest} komment`);
     }
@@ -1397,7 +1439,7 @@
     sel = sel.map((x, i) => ({ ...x, i })).sort((a, b) => ((b.c.pinned || b.c.isAuthor ? 1 : 0) - (a.c.pinned || a.c.isAuthor ? 1 : 0)) || a.i - b.i);
     const total = sel.length;
     const lines = sel.slice(offset, offset + top).map(({ c, n }) =>
-      `c${n}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''} ${c.depth ? '↳' + (c.replyTo ? clipS(c.replyTo, 12) + '←' : '') : ''}${clipS(c.author, 16)}: ${clipS(c.text || '', chars)}${c.media?.length ? ' 📷' + c.media.length : ''}${c.links?.length ? ' 🔗' : ''}`);
+      `c${n}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''}${c.dateConflict ? '⚠' : ''} ${c.depth ? '↳' + (c.replyTo ? clipS(c.replyTo, 12) + '←' : '') : ''}${clipS(c.author, 16)}: ${clipS(c.text || '', chars)}${c.media?.length ? ' 📷' + c.media.length : ''}${c.links?.length ? ' 🔗' : ''}`);
     const loaded = all.length, declared = row.p.counts?.comments;
     const ex = lastExpand.get(contentKey(row.p)), gap = declared != null ? declared - loaded : 0;
     const inOverlay = !!row.root && (row.root.matches(SEL.dialog) || !!row.root.closest(SEL.dialog));
@@ -1486,7 +1528,7 @@
     const s = `${pg.type}${pg.heading ? ' · ' + clipS(pg.heading, 40) : ''} · ${scrollPct()}% · DOM ${rows.filter(r => r.live).length} · tár ${harvest.store.size} · új ${rows.filter(r => !seen.has(r.h)).length}/${rows.length} · látszik: ${vis.slice(0, 4).join(' ') || '-'}${pg.dialogOpen ? ' · 🗗 overlay nyitva' : ''}${pg.type === 'photo' ? ' · fotóoldal, poszt: ' + clipS(photoPostHref() || 'nincs link', 80) : ''}${pg.warning ? ' · ⚠ ' + pg.warning : ''}`;
     return `${s} · ~${TOK(s.length)}tok`;
   }
-  const forgetSeen = () => { try { localStorage.removeItem(SEEN_KEY); } catch (e) { /* nincs tár */ } return 'látott-lista törölve'; };
+  const forgetSeen = () => { storeRemove(SEEN_KEY); return 'látott-lista törölve'; };
 
   // ── Self-test: which DOM anchors still exist on the current page? ─────────
   // langProbe(): what does the reader NOT understand on this page? Run it on a page in a new Facebook language, then
@@ -1538,13 +1580,25 @@
       if (ex.counts < n) warnings.push(`FIGYELEM: ${n - ex.counts}/${n} poszt számlálója hiányzik`);
       if (!anchors.like_button) warnings.push('FIGYELEM: like_button horgony 0 (a react() tartalék keresésre esik vissza)');
     }
+    const unstableAnchors = feedRows().unstable || 0;
+    if (unstableAnchors) warnings.push(`FIGYELEM: ${unstableAnchors} ütköző tartalomkulcsú poszt (azonos szerző+szövegkezdet, postId nélkül) — a horgonyuk újratöltés között nem garantált stabil`);
+    // localStorage can silently lose a freshly written key (observed in testing, root cause uncertain):
+    // write a probe and read it straight back rather than trusting the API blindly.
+    let storagePersistent = true;
+    try {
+      const pk = '__fbr_probe__', pv = String(Date.now());
+      localStorage.setItem(pk, pv);
+      storagePersistent = localStorage.getItem(pk) === pv;
+      localStorage.removeItem(pk);
+    } catch (e) { storagePersistent = false; }
+    if (!storagePersistent) warnings.push('FIGYELEM: a localStorage nem tartós ezen az oldalon — az olvasási lista / követés elveszhet (markSeen/trkSave sessionStorage-ra esik vissza)');
     const page = pageInfo();
     const lg = lang();
     if (lg.code && !lg.supported) warnings.push(`FIGYELEM: a Facebook nyelve „${lg.page}” — nincs hozzá nyelvi csomag (${lg.packs.join(', ')}); a dátumok, számlálók és gombfeliratok nem biztos, hogy felismerhetők. Segítség: langProbe() és references/i18n.md`);
     else if (lg.code && !lg.verified) warnings.push(`FIGYELEM: a „${lg.code}” nyelvi csomag még nincs valódi Facebook-felületen ellenőrizve (langProbe() megmutatja, mit nem ismer fel)`);
     const res = {
       ok: !warnings.some(w => w.startsWith('HIBA')), clean: warnings.length === 0, version: VERSION, build: BUILD, lang: document.documentElement.lang || null, language: lg,
-      page: page.type, extension: !!window.__fbReaderExt, writeModule: window.__fbReader?.writeModule || null, anchors, extraction: ex, warnings,
+      page: page.type, extension: !!window.__fbReaderExt, writeModule: window.__fbReader?.writeModule || null, anchors, extraction: ex, unstableAnchors, storagePersistent, warnings,
     };
     if (format === 'object') return res;
     return `selfTest ${res.clean ? '✓' : res.ok ? '⚠' : '✗'} · fb-reader ${VERSION}+${BUILD} · ${res.lang || '?'} · ${page.type} · bővítmény: ${res.extension ? 'igen' : 'nem'} · írási modul: ${res.writeModule ? 'van' : 'nincs'}\n` +
@@ -1709,6 +1763,17 @@
     return roots.map(r => [r, r.getBoundingClientRect()]).filter(([, b]) => b.height > 0)
       .sort((a, b) => Math.abs((a[1].top + a[1].bottom) / 2 - mid) - Math.abs((b[1].top + b[1].bottom) / 2 - mid))[0]?.[0] || null;
   }
+  // Like resolvePost, but a '#horgony' that only lives in the harvest store (not currently in the DOM) is
+  // scrolled back first (ensureLive): resolvePost itself can only ever return an element, and an off-DOM
+  // row has none yet. Everything else (number, 'last', url fragment, object, viewport-centre/overlay) is
+  // synchronous and delegates straight to resolvePost.
+  async function resolveLive(sel) {
+    if (typeof sel === 'string' && /^#[0-9a-z]{4}$/i.test(sel)) {
+      const row = await ensureLive(sel);
+      return row && row.live ? row.root : null;
+    }
+    return resolvePost(sel);
+  }
 
   // Visual aid for screenshots: outline an element (pointer-events none, removed by unmark()).
   function mark(el, color = '#e11d48') {
@@ -1725,7 +1790,7 @@
 
   // ── Pinned / author comments (prompt-sharing pages keep the real content there) ──
   async function extractPinnedComments({ post, expand = true, authorComments = true, max = 80, budgetMs = 7000 } = {}) {
-    const root = resolvePost(post);
+    const root = await resolveLive(post);
     if (!root) return { found: false, comments: [] };
     const t0 = Date.now();
     if (expand) {
@@ -1749,7 +1814,7 @@
   async function extractPrompt(opts = {}) {
     const r = await extractPinnedComments(opts);
     if (!r.found) return { found: false };
-    const root = resolvePost(opts.post);
+    const root = await resolveLive(opts.post);
     let p; try { p = extractPost(root); } catch { p = {}; }
     const cand = r.comments.map(c => ({ text: c.text || '', source: c.pinned ? 'pinned-comment' : 'author-comment' }))
       .concat(/prompt/i.test(p.text || '') ? [{ text: p.text, source: 'post-text' }] : [])
@@ -1981,6 +2046,11 @@
   const MK_CUR = /(ft|huf|eur|€|\$|usd|ron|lei|czk|pln|zł|kč)/i;
   const mkIsPrice = s => /^(ingyenes|free)$/i.test(s) || (s.length <= 24 && /\d/.test(s) && MK_CUR.test(s) && !/[a-záéíóöőúüű]{5,}/i.test(s.replace(MK_CUR, '')));
   const mkPriceNum = s => { if (/^(ingyenes|free)$/i.test(s || '')) return 0; const d = String(s || '').replace(/[^\d]/g, ''); return d ? +d : null; };
+  // One "line" of a single-listing page can hold the current price and the struck-through old price with no
+  // separator between them ("25 000 Ft250 000 Ft"): split it back into its price tokens instead of treating
+  // it as one price.
+  const MK_PRICE_TOKEN = /(?:ingyenes|free|[\d\s.,]+\s*(?:ft|huf|eur|€|\$|usd|ron|lei|czk|pln|zł|kč))/gi;
+  const mkSplitPrices = s => (s ? (s.match(MK_PRICE_TOKEN) || []).map(t => t.trim()).filter(Boolean) : []);
   const MK_BADGE = /^(az imént meghirdetve|meghirdetve|\d+\s*(perce|órája|napja|hete|hónapja|éve)\b|just listed|listed\b|kiemelt|csökkentett ár|ára csökkent|price drop|akció)/i;
   const MK_SPONS = /^(partneri hirdetés|szponzorált|sponsored|hirdetés)$/i;
   const MK_STORE = { key: '', rows: new Map() };
@@ -2095,7 +2165,9 @@
     const h1 = main.querySelector('h1');
     const title = (h1 ? textLines(h1)[0] : '') || L[0] || '';
     const ti = Math.max(0, L.indexOf(title));
-    const price = L.slice(ti + 1, ti + 9).find(mkIsPrice) || null;
+    const priceLine = L.slice(ti + 1, ti + 9).find(mkIsPrice) || null;
+    const priceParts = mkSplitPrices(priceLine); // current price, then the struck-through old price if both share one line
+    const price = priceParts[0] || null, oldPrice = priceParts[1] || null;
     let when = null, loc = null, deliv = null;
     const mi = L.findIndex((l, i) => i > ti && /^(meghirdetve|listed)\b/i.test(l));
     if (mi >= 0) {
@@ -2117,7 +2189,7 @@
     const sellerA = [...main.querySelectorAll('a[href*="/marketplace/profile/"]')].find(a => textLines(a)[0] && !/^(eladó adatai|seller information)$/i.test(textLines(a)[0]));
     const seller = sellerA ? { name: textLines(sellerA)[0], profile: new URL(sellerA.href, location.href).pathname, joined: L.find(l => /^(ekkor csatlakozott|joined)/i.test(l)) || null } : null;
     const images = [...main.querySelectorAll('img')].filter(i => i.width > 150 && i.alt && !/,\s*(itt|in):/i.test(i.alt)).length;
-    return { id: m[1], title, price, priceNum: price ? mkPriceNum(price) : null, when, loc: loc || approx, delivery: deliv, details, desc, seller, images, url: `${location.origin}/marketplace/item/${m[1]}/` };
+    return { id: m[1], title, price, priceNum: price ? mkPriceNum(price) : null, oldPrice, when, loc: loc || approx, delivery: deliv, details, desc, seller, images, url: `${location.origin}/marketplace/item/${m[1]}/` };
   }
   function listing(ref, { chars = 320, format = 'text' } = {}) {
     if (ref && typeof ref === 'object') { format = ref.format || format; chars = ref.chars || chars; ref = null; }
@@ -2126,7 +2198,7 @@
       if (format === 'json') return x ? { ok: true, ...x, price: x.price, sellerName: x.seller?.name || null } : { ok: false, why: 'ez nem hirdetés-oldal' };
       if (!x) return `listing · ez nem hirdetés-oldal · market() listázza a találatokat, listing('$ref') adja a címet`;
       const det = Object.entries(x.details).map(([k, v]) => `${k}: ${v}`).join('; ');
-      const s = `listing · ${clipS(x.title, 70)} · ${x.price || '?'}${x.when ? ' · ' + x.when : ''}${x.loc ? ' · ' + clipS(x.loc, 30) : ''}${x.delivery ? '\n' + clipS(x.delivery, 50) : ''}${det ? '\n' + clipS(det, 220) : ''}${x.desc ? '\nLeírás: ' + clipS(x.desc, chars) : ''}${x.seller ? `\nEladó: ${clipS(x.seller.name, 30)}${x.seller.joined ? ' (' + clipS(x.seller.joined.replace(/^(ekkor csatlakozott a facebookhoz|joined facebook in)\s*:?\s*/i, 'csatlakozott: ').replace(/\.$/, ''), 34) + ')' : ''}` : ''}\n→ ${x.url} · 📷${x.images}`;
+      const s = `listing · ${clipS(x.title, 70)} · ${x.price || '?'}${x.oldPrice ? ' (volt ' + x.oldPrice + ')' : ''}${x.when ? ' · ' + x.when : ''}${x.loc ? ' · ' + clipS(x.loc, 30) : ''}${x.delivery ? '\n' + clipS(x.delivery, 50) : ''}${det ? '\n' + clipS(det, 220) : ''}${x.desc ? '\nLeírás: ' + clipS(x.desc, chars) : ''}${x.seller ? `\nEladó: ${clipS(x.seller.name, 30)}${x.seller.joined ? ' (' + clipS(x.seller.joined.replace(/^(ekkor csatlakozott a facebookhoz|joined facebook in)\s*:?\s*/i, 'csatlakozott: ').replace(/\.$/, ''), 34) + ')' : ''}` : ''}\n→ ${x.url} · 📷${x.images}`;
       return `${s} · ~${TOK(s.length)}tok`;
     }
     const all = [...mkRows(), ...MK_STORE.rows.values()];
@@ -2141,8 +2213,8 @@
   // (navigate to the item's URL) and trackCheck() compares it with the last snapshot: price/status/counters of a Marketplace
   // listing, reactions/comments/shares + NEW comments of a group sale post. Nothing here clicks, types or sends.
   const TRK_KEY = 'fb-reader:track';
-  const trkLoad = () => { try { const a = JSON.parse(localStorage.getItem(TRK_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
-  const trkSave = a => { try { localStorage.setItem(TRK_KEY, JSON.stringify(a.slice(-40))); return true; } catch (e) { return false; } };
+  const trkLoad = () => { try { const a = JSON.parse(storeGet(TRK_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
+  const trkSave = a => storeSet(TRK_KEY, JSON.stringify(a.slice(-40)));
   const TRK_SOLD = /(?:^|[^\p{L}])(eladva|elkelt|sold|foglalt|lefoglalva|reserved|függőben|pending)(?![\p{L}])/iu;
   const TRK_STATS = /(\d[\d\s.,]*)\s*(megtekintés|kattintás|érdeklődő|mentés|megosztás|views?|clicks?|interested|saves?|shares?)(?![\p{L}])/giu;
   const TRK_INQ = /(még (elérhető|megvan|eladó)|érdekel|lefoglal|foglal(t|om)|mennyi|alku|cserél|átvétel|küldesz|küldene|available|interested|how much|price)/i;
