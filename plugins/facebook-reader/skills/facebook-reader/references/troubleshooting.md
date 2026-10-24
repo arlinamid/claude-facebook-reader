@@ -48,6 +48,7 @@
 | `listing()` says "nem hirdetés-oldal" | `navigate` to the item URL first (`listing('$ref')` prints it) |
 | `sellCheck()` says "nincs megnyitott hirdetésfeladó űrlap" | open `nav.marketplaceCreate()`, or in a group click the composer's "Eladó tárgy" and then the type "Eladó tárgy" in the chooser |
 | typing into the listing form is denied | the text differs from the approved one (the hook prints the first differing character) or the field is already complete: re-approve with `--kind listing` or type verbatim |
+| photo upload shows "A fájlodat nem sikerült feltölteni" / "file format is not supported" | the Facebook post composer rejects `.webp` outright (listing/Marketplace photos too). Convert to JPG/PNG/GIF first, e.g. `magick in.webp out.jpg`, then attach the converted file |
 | "Tovább" asks the user | the approved content is not fully typed/uploaded yet (`fb-approve.mjs --status` shows the progress), or the click summary mentions publish/send |
 | `trackCheck()` says "nem követett" | `trackAdd()` first (on that page); the store is per browser profile |
 | `trackCheck()` says the page is not readable | wait 3–4 s after `navigate`, then retry; a deleted/expired listing shows an error page |
