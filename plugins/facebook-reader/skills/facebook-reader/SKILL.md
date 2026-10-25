@@ -10,7 +10,7 @@ description: >
   reel", "gyűjtsd ki a promptokat az oldalról", "reagálj / kommentelj erre a posztra", "jött értesítés a posztomra?", "van új üzenetem?", "keress az üzeneteimben", "keress a Marketplace-en", "mennyibe kerül használtan", "hasonlítsd össze a hirdetéseket", "add el a Marketplace-en", "hirdesd meg a csoportban", "mi újság a hirdetéseimmel?", "kövesd a hirdetésemet", or pastes a
   saved Facebook HTML / posts.json export.
 metadata:
-  version: "0.13.2"
+  version: "0.13.3"
   author: "arlinamid"
 ---
 

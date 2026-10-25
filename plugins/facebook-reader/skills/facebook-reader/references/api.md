@@ -73,6 +73,8 @@ merges the richest version of every field.
 | `groupInfo()` | `{id, name, privacy, members, about, isMember}` |
 | `extractMediaGrid({limit=200})` | on media/photos/videos/reels grids: `[{kind, url, id, thumb, alt}]` |
 | `mediaList(dump?)` | flat download list from harvest/extract incl. comment media: `[{type, url, postId, postUrl, n, comment, alt}]`. Holds **signed** image URLs: pass it to `download()`, never into the chat |
+| `async photoSet({limit=10, budgetMs=15000, download=false, dest='downloads'})` | on the open `/photo/?fbid=…&set=pcb.…` viewer: steps the "Next photo" control forward, one row per item (`{type:'image', url, postId, postUrl, n, alt}`), flags any video/reel in the set separately (own link only, no fetchable image). Stores the collected images on `__fbReader.lastSet`; `download:true` also runs `downloadImages()` on them. **Not yet confirmed against a live viewer DOM** |
+| `async downloadImages({post, rows, dest='downloads'\|'view', limit=12, budgetMs=20000})` | fetches each image's bytes in the page itself and either saves a real file per image (`dest:'downloads'`, Blob + `<a download>`) or shows them in the `__fbReader` overlay for `screenshot`/`zoom` (`dest:'view'`, no fetch, no CORS needed) — ask the user before calling with `dest:'downloads'`. `post` = one already-read post; `rows` = an explicit `mediaList()`/`photoSet()`-shaped array; neither → every image currently extracted/harvested. Failed fetches (CORS) are reported per file, never dropped silently |
 | `fbIdOf(url)` / `cdnSafe(url)` | `{id, slug}` of a profile/page/group URL · strip the query string of a CDN URL |
 
 ## Write module (`fb-reader-write.min.js`) — locate & report, never click

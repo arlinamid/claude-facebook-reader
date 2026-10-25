@@ -21,7 +21,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.13.2';
+  const VERSION = '0.13.3';
   const BUILD = '__BUILD__'; // replaced by build.py with a content hash
 
   // ── Selectors (semantic anchors only) ────────────────────────────────────
@@ -61,6 +61,7 @@
         seeMore: ['továbbiak', 'tovább', 'több megjelenítése'],
         noise: ['továbbiak', 'kevesebb megjelenítése', 'tetszik', 'hozzászólás', 'megosztás', 'válasz', 'követés', 'csatlakozás', 'fordítás megtekintése'],
         seeLess: ['kevesebb megjelenítése'], translate: ['fordítás megtekintése'], viewPost: ['bejegyzés megtekintése'],
+        nextPhoto: ['következő fénykép', 'következő videó', 'következő'], prevPhoto: ['előző fénykép', 'előző videó', 'előző'],
         sponsored: ['hirdetés', 'szponzorált', 'támogatott', 'fizetett partnerség'], verified: ['ellenőrzött fiók', 'hitelesített'],
         person: ['ember'],
         keep: ('tetszik szuper imádom törődöm haha vicces hűha szomorú dühös reagálás reakció reakciók hozzászólás hozzászólása hozzászólására válasz válasza ' +
@@ -103,6 +104,7 @@
         seeMore: ['see more', 'see more…'],
         noise: ['see more', 'see less', 'like', 'comment', 'share', 'reply', 'follow', 'join', 'see translation'],
         seeLess: ['see less'], translate: ['see translation'], viewPost: ['view post'],
+        nextPhoto: ['next photo', 'next video', 'next'], prevPhoto: ['previous photo', 'previous video', 'previous'],
         sponsored: ['sponsored', 'promoted', 'paid partnership'], verified: ['verified account'],
         person: ['people', 'person'],
         keep: ('like love care sad angry wow comment reply share see more view all posts photo video by as author pinned ago just now yesterday ' +
@@ -139,7 +141,7 @@
   // derived vocabulary (rebuilt by buildVocab() whenever a pack is registered); the names below are used all over the reader
   let COMMENT_LABEL_RE, SEE_MORE, MORE_COMMENTS_RE, UI_NOISE, PUBLISH_RE, MONTHS, MONTH_HINT_RE, UI_LINE_RE, CNT, UNIT, REL_RE, YESTERDAY_RE, NOW_RE, AMPM_RE,
     REACTION_RE, BARE_NUM_RE, PINNED_RE, AUTHOR_BADGE_RE, BADGE_LINE_RE, SPONSORED_RE, SORT_RE, SORT_ANY, VERIFIED_RE, VERIFIED_SEL, REACTION_ATTR_SEL, SKIP_DATE_RE,
-    COMMENT_LABEL_PARSE, REPLY_TO_RES, POST_BY_RES, VIEW_POST_RE, KEEP_WORDS, NOTIF_TIME_RE, COMMENTS_COUNT_RE, SHARES_COUNT_RE, REACTIONS_WORD_RE, AM, PM;
+    COMMENT_LABEL_PARSE, REPLY_TO_RES, POST_BY_RES, VIEW_POST_RE, NEXT_PHOTO_RE, PREV_PHOTO_RE, KEEP_WORDS, NOTIF_TIME_RE, COMMENTS_COUNT_RE, SHARES_COUNT_RE, REACTIONS_WORD_RE, AM, PM;
   function buildVocab() {
     COMMENT_LABEL_RE = RX('commentLabel');
     SEE_MORE = wAll('seeMore');
@@ -186,6 +188,8 @@
     REPLY_TO_RES = rAll('replyTo').map(x => new RegExp(x, 'i'));
     POST_BY_RES = rAll('postBy').map(x => new RegExp(x, 'i'));
     VIEW_POST_RE = new RegExp('^(?:' + alt(wAll('viewPost')) + ')$', 'i');
+    NEXT_PHOTO_RE = new RegExp('^(?:' + alt(wAll('nextPhoto')) + ')$', 'i');
+    PREV_PHOTO_RE = new RegExp('^(?:' + alt(wAll('prevPhoto')) + ')$', 'i');
     KEEP_WORDS = new Set([...wAll('keep'), ...Object.keys(MONTHS), ...all, ...pk().flatMap(p => [...p.rel.yesterday, ...p.rel.now, ...AM, ...PM, ...(p.rel.ago || [])]).flatMap(x => x.split(' ')),
       ...[...kSet, ...mSet], 'e', 'k', 'm']);
     return { kSet, mSet };
@@ -640,6 +644,21 @@
   // Facebook's auto alt text is often just "szöveg" / "Text" / "Lehet, hogy ez egy szöveg képe": it says nothing about the picture.
   const WEAK_ALT_RE = /^(?:lehet,? hogy( ez)?|may be|maybe)?\s*(?:egy |an? )?(?:szöveg|text|kép|image|photo|fotó|screenshot|képernyőkép|screen ?shot)\b.{0,14}$/i;
   const isWeakAlt = a => !a || a.length < 10 || WEAK_ALT_RE.test(a.trim());
+  // A >4-photo grid shows a handful of thumbnails plus one "+N" overlay tile for the rest; the N hidden
+  // photos behind it have no <img> at all, so a plain img-count undercounts the post (live-review finding,
+  // not yet confirmed against the real DOM: only trust this when it is near a thumbnail, never a bare "+N").
+  function hiddenGridCount(root, imgs) {
+    if (!imgs.length) return 0;
+    let n = 0;
+    for (const el of ownAll(root, 'span, div')) {
+      if (!isShown(el, root)) continue;
+      const t = (el.textContent || '').trim();
+      if (!/^\+\s*\d{1,3}$/.test(t)) continue;
+      if (!el.closest('a,div')?.querySelector('img')) continue; // must sit on top of a thumbnail, not an unrelated badge
+      n = Math.max(n, parseInt(t.replace(/\D/g, ''), 10));
+    }
+    return n;
+  }
   function extractMedia(root) {
     const images = [];
     const seen = new Set();
@@ -655,11 +674,12 @@
       const alt = (img.getAttribute('alt') || '').trim();
       images.push({ src, alt: alt || null, altWeak: alt ? isWeakAlt(alt) : undefined });
     }
+    const hiddenMore = hiddenGridCount(root, images);
     const videos = [...new Set(
       ownAll(root, 'a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch"], a[href*="fb.watch"]').map(a => cleanUrl(a.href)).filter(u => !/\/hashtag\//.test(u))
     )];
     const hasVideoTag = !!root.querySelector('video');
-    return { images, videos, hasVideo: hasVideoTag || videos.length > 0 };
+    return { images, videos, hasVideo: hasVideoTag || videos.length > 0, hiddenMore };
   }
 
   function parseCount(s) {
@@ -820,6 +840,7 @@
       links,
       cards,
       images: media.images,
+      hiddenImages: media.hiddenMore || 0,
       videos: media.videos,
       hasVideo: media.hasVideo,
       counts: extractCounts(root),
@@ -1243,7 +1264,7 @@
     if (h && !/(^|\.)facebook\.com$/.test(h)) return h;
     return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(meta) ? meta : h; // the card's own domain line when the href is still FB's shim
   };
-  const flagsOf = p => [p.images?.length ? '📷' + p.images.length : '', p.hasVideo ? '🎬' : '', (p.cards?.length || p.links?.length) && linkDom(p) ? '🔗' + clipS(linkDom(p), 18) : '', p.sharedText ? '⇄' : '', p.textTruncated ? '…' : ''].filter(Boolean).join('');
+  const flagsOf = p => [p.images?.length ? '📷' + (p.images.length + (p.hiddenImages || 0)) + (p.hiddenImages ? '⚠' : '') : '', p.hasVideo ? '🎬' : '', (p.cards?.length || p.links?.length) && linkDom(p) ? '🔗' + clipS(linkDom(p), 18) : '', p.sharedText ? '⇄' : '', p.textTruncated ? '…' : ''].filter(Boolean).join('');
   const headText = p => p.text || p.sharedText || (p.images?.find(i => i.alt)?.alt ? '[kép] ' + p.images.find(i => i.alt).alt : '') || p.cards?.[0]?.title || (p.hasVideo ? '[videó]' : p.images?.length ? '[kép]' : '');
   const scrollPct = () => Math.round(100 * scrollY / Math.max(1, document.documentElement.scrollHeight - innerHeight));
 
@@ -1411,7 +1432,7 @@
     if (t) L.push(`„${clipS(t, chars)}"${t.length > chars ? ` [+${t.length - chars} kar]` : ''}${p.textTruncated ? ' [csonkolt: expandSeeMore()]' : ''}`);
     if (p.sharedText) L.push(`⇄ ${clipS(p.sharedText, 110)}`);
     const alts = (p.images || []).map(i => i.alt).filter(Boolean);
-    if (p.images?.length) L.push(`🖼 ${p.images.length} kép${alts.length ? ': ' + alts.slice(0, 2).map(a => clipS(a, 60)).join(' | ') : ''}${(p.images || []).every(i => !i.alt || i.altWeak) ? ' ⚠alt nem leíró: a képet nézd meg' : ''}`);
+    if (p.images?.length) L.push(`🖼 ${p.images.length}${p.hiddenImages ? `+${p.hiddenImages} rejtett (⚠ becslés: a „+N” csempe felirata) → fénykép nézegető: photoSet()` : ''} kép${alts.length ? ': ' + alts.slice(0, 2).map(a => clipS(a, 60)).join(' | ') : ''}${(p.images || []).every(i => !i.alt || i.altWeak) ? ' ⚠alt nem leíró: a képet nézd meg' : ''}`);
     if (p.cards?.length) L.push(`🔗 ${clipS(p.cards[0].title || p.cards[0].url, 70)} (${linkDom(p)})`);
     else if (p.links?.length) L.push(`🔗 ${p.links.slice(0, 2).map(domOf).join(', ')}`);
     const cs = comments ? withComments(row) : [];
@@ -2498,6 +2519,123 @@
     return `letöltés indítva: ${filename}`;
   }
 
+  // downloadImages({post, rows, dest:'downloads'|'view', limit=12, budgetMs=20000}) — ask the user before calling this.
+  // Fetches each image's BYTES inside the page itself (fetch runs in the page's own origin/session; the
+  // signed fbcdn URL never has to leave the browser as text, so the chat/tool output never sees it and the
+  // "[BLOCKED: Cookie/query string data]" output filter never fires on it):
+  //   dest:'downloads' (default) — Blob + <a download>, the same trick download() uses for JSON, one real
+  //     file per image (needs the fetch to succeed: NOT yet confirmed against a live fbcdn response — some
+  //     CDN hosts refuse cross-origin fetch reads even though <img> loads fine; a failed item is reported
+  //     with its filename and error, never silently dropped, and the summary points at the fb_tool.py /
+  //     mediaList()+download() JSON fallback that already works).
+  //   dest:'view' — no fetch at all (plain <img src> never needs CORS): shows the image(s) full-size in the
+  //     __fbReader overlay so the agent can screenshot/zoom and actually look at the picture ("to chat for
+  //     processing") without saving anything to disk; close with hide().
+  // `post`: one already-read post (map()/peek() anchor, selector, or omitted = nearest/overlay), only its
+  // own images. `rows`: an explicit mediaList()-shaped array (e.g. from photoSet()). Neither given → every
+  // image currently extracted/harvested (mediaList()).
+  async function downloadImages(opts = {}) {
+    const { post, rows: given, dest = 'downloads', limit = 12, budgetMs = 20000 } = opts;
+    let rows;
+    if (given) rows = given;
+    else if (post !== undefined) {
+      const row = await ensureLive(post);
+      if (!row) return noRow(post);
+      rows = mediaList({ posts: [row.p] });
+    } else rows = mediaList();
+    const images = rows.filter(r => r.url && r.type === 'image').slice(0, limit);
+    const others = rows.filter(r => r.url && r.type && r.type !== 'image');
+    if (!images.length) return `downloadImages · nincs kép${others.length ? ` (${others.length} videó/reel: fb_tool.py media --url …)` : ''}`;
+    const t0 = Date.now();
+    const ok = [], failed = [], views = [];
+    for (let i = 0; i < images.length; i++) {
+      if (Date.now() - t0 > budgetMs) { failed.push({ ...images[i], error: 'időkeret lejárt — hívd újra a maradékkal' }); continue; }
+      const im = images[i];
+      const name = `${im.postId || 'fb'}${im.comment ? '_c' + im.comment : ''}_${im.n || i + 1}.jpg`;
+      if (dest === 'view') { views.push({ name, url: im.url, alt: im.alt }); ok.push(name); continue; }
+      try {
+        const res = await fetch(im.url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+        ok.push(name);
+      } catch (e) { failed.push({ ...im, name, error: String(e?.message || e) }); }
+      await sleep(jitter(350, 200));
+    }
+    if (dest === 'view' && views.length) {
+      let el = document.getElementById('fb-reader-out');
+      if (!el) { el = document.createElement('article'); el.id = 'fb-reader-out'; document.body.prepend(el); }
+      el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#fff;overflow:auto;padding:12px';
+      const esc = t => String(t || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      el.innerHTML = views.map(v => `<figure style="margin:0 0 16px"><img src="${v.url}" style="max-width:100%;display:block" alt=""><figcaption style="font:12px monospace;color:#555">${esc(v.name)}${v.alt ? ' · ' + esc(v.alt) : ''}</figcaption></figure>`).join('');
+    }
+    const s = `downloadImages · ${ok.length}/${images.length} kép ` +
+      (dest === 'view' ? 'megjelenítve a nézegetőben (screenshot / zoom a nézéshez, __fbReader.hide() a bezáráshoz)' : 'letöltve a Letöltések mappába') +
+      (failed.length ? ` · ⚠ ${failed.length} hiba (fetch/CORS) → fb_tool.py media -val vagy mediaList()+download() JSON-exporttal` : '') +
+      (others.length ? ` · ${others.length} videó/reel kihagyva: fb_tool.py media --url …` : '');
+    return s;
+  }
+
+  // nearest/open photo-viewer overlay's "next" control (Következő fénykép / Next photo); scoped to the
+  // dialog so it never matches an unrelated "Következő"/"Next" elsewhere on the page.
+  function nextPhotoButton() {
+    const scope = document.querySelector(SEL.dialog) || document.querySelector('[role="main"]') || document.body;
+    return [...scope.querySelectorAll('[role="button"], a[role="link"], div[tabindex="0"]')]
+      .find(b => isShown(b, scope) && NEXT_PHOTO_RE.test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
+  }
+  // one item of the open viewer: the big visible image, or (if a <video> tag / a /reel//videos/ URL is
+  // showing instead) a video/reel row with no fetchable image src.
+  function viewerItem() {
+    const scope = document.querySelector(SEL.dialog) || document.querySelector('[role="main"]') || document.body;
+    const url = cleanUrl(location.href);
+    if (scope.querySelector('video') || /\/reel\//.test(url) || /\/videos\//.test(url)) {
+      return { kind: /\/reel\//.test(url) ? 'reel' : 'video', url, postId: postIdFromUrl(url), alt: null };
+    }
+    const imgs = [...scope.querySelectorAll('img')].filter(i => isShown(i, scope) && isFbCdn(i.currentSrc || i.src || ''));
+    const big = imgs.sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight))[0];
+    if (!big) return null;
+    const src = big.currentSrc || big.src;
+    return { kind: 'image', url: src, postId: postIdFromUrl(url), alt: (big.getAttribute('alt') || '').trim() || null };
+  }
+  // photoSet({limit=10, budgetMs=15000, download=false, dest='downloads'}) — walks the OPEN photo/video
+  // viewer's set=pcb.… carousel forward (never opens one), one item per step, up to `limit`; a set mixing
+  // photos with a video/reel is common (FB keeps them in the same set) and those are flagged separately —
+  // they have no fetchable image src, only their own page link (hand that to fb_tool.py / yt-dlp instead).
+  // Not yet confirmed against a live viewer DOM: if `nextPhotoButton` finds nothing on the first item,
+  // the aria-label wording differs from the hu/en pack (registerLang / add the real label to i18n.md).
+  async function photoSet(opts = {}) {
+    const { limit = 10, budgetMs = 15000, download = false, dest = 'downloads' } = opts;
+    if (pageInfo().type !== 'photo') return `photoSet · ez nem fotó-nézegető oldal (jelenleg: ${pageInfo().type}) — nyisd meg a /photo/?fbid=…&set=… linket`;
+    const t0 = Date.now();
+    const rows = []; const seenKeys = new Set();
+    for (let i = 0; i < limit && Date.now() - t0 < budgetMs; i++) {
+      const it = viewerItem();
+      if (!it || seenKeys.has(it.url)) break; // nincs több elem / körbeértünk a set elején
+      seenKeys.add(it.url);
+      rows.push(it);
+      if (rows.length >= limit) break;
+      const btn = nextPhotoButton();
+      if (!btn) break;
+      btn.click();
+      let waited = 0;
+      while (waited < 2500) { await sleep(150); waited += 150; const now = viewerItem(); if (now && now.url !== it.url) break; }
+      await sleep(jitter(250, 150));
+    }
+    const postUrl = photoPostHref();
+    const images = rows.filter(r => r.kind === 'image').map((r, i) => ({ type: 'image', url: r.url, postId: r.postId, postUrl, n: i + 1, alt: r.alt }));
+    const others = rows.filter(r => r.kind !== 'image');
+    window.__fbReader.lastSet = images;
+    let dl = '';
+    if (download && images.length) dl = ' · ' + await downloadImages({ rows: images, dest, limit: images.length });
+    const s = `photoSet · ${rows.length} elem a nézegetőben` +
+      (others.length ? ` · ⚠ ${others.length} videó/reel a setben (külön letöltés: fb_tool.py media --url …): ${others.map(o => `${o.kind} ${cdnSafe(o.url)}`).slice(0, 3).join(' · ')}` : '') +
+      (postUrl ? ` · poszt: ${clipS(postUrl, 70)}` : '') + dl +
+      (!download && images.length ? ` · letöltés: downloadImages({rows:__fbReader.lastSet})` : '');
+    return s;
+  }
+
   if (window.__fbReader?.harvest?.observer) window.__fbReader.harvest.observer.disconnect();
   window.__fbReader = {
     version: VERSION,
@@ -2505,7 +2643,7 @@
     lang, registerLang, langProbe, extract, expandSeeMore, expandComments, hoverDates, hoverReveal: hoverDates, harvest, selfTest, snapshot, q,
     map, peek, thread, full, grep, go, where, forgetSeen, setCommentSort,
     inbox, watchPeek, notifs, notif, msgs, msgOpen, msgThread, me, selfThread, market, marketScroll, ready, listing, trackAdd, trackList, trackRemove, trackCheck, myListings, priceCheck,
-    nav, extractSearchResults, listGroups, groupInfo, extractMediaGrid, mediaList, download, kindOfUrl, fbIdOf, cdnSafe,
+    nav, extractSearchResults, listGroups, groupInfo, extractMediaGrid, mediaList, download, downloadImages, photoSet, kindOfUrl, fbIdOf, cdnSafe,
     findPost, resolvePost, mark, unmark, extractPinnedComments, extractPrompt, promptsToMarkdown,
     pageInfo, findPostRoots, extractPost, parseFbDate, decodeScrambled, visibleText, cleanUrl, unwrapUrl, toMarkdown,
     // javascript_tool output is cut at ~1000 chars: park the result on the page and

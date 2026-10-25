@@ -5,6 +5,13 @@ az `[Unreleased]` blokk tartalma kerül az új verzió alá.
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-10-25
+
+### Hozzáadva (élő használati visszajelzés alapján: képletöltés, fénykép-nézegető — **még nem élőben tesztelve**, első valódi használatkor ellenőrizendő)
+- **`downloadImages({post, rows, dest, limit, budgetMs})`:** eddig a `download()` csak a signed URL-eket mentette JSON-ba, a tényleges képfájlt a felhasználó gépén futó `fb_tool.py`-nak kellett letöltenie. Most a böngésző maga is tud valódi fájlt menteni: a kép bájtjait a lap saját kontextusában olvassa (`fetch` → `Blob` → `<a download>`, ugyanaz a trükk, mint a `download()`-ban), így a signed fbcdn URL sosem kerül vissza szövegként a chatbe, és a „[BLOCKED: Cookie/query string data]” szűrő nem tudja elkapni. `dest:'view'` nem is fetchel (egy `<img src>` sosem igényel CORS-t), csak megjeleníti a képet a `__fbReader` overlay-ben — a Claude ekkor `screenshot`/`zoom`-mal tényleg megnézheti a fotót, fájl nélkül. **Kockázat:** a `dest:'downloads'` fetch-je CORS-t igényel az fbcdn-től; ha egy host blokkolja, a hiba jelentve van (fájlnévvel), sosem hallgatva el, és a hibaüzenet a bevált `fb_tool.py` / `mediaList()+download()` útra irányít.
+- **`photoSet({limit, budgetMs, download, dest})`:** a `/photo/?fbid=…&set=pcb.…` nézegetőben a "Következő fénykép" gombon végiglépked, begyűjti a setet (max `limit` elem), és **külön jelzi, ha a setben videó/reel van** (ezeknek nincs letölthető kép-src, csak saját link, amit a `fb_tool.py media --url …`-nak kell átadni) — eddig csak a rácsnézet (`extractMediaGrid`) volt kezelve, a nézegető nem. `download:true` esetén a begyűjtött képeket egyben leküldi `downloadImages()`-nek; a `postOf`-nak megfelelő `nav.photoPost()` már eddig is létezett, csak nem volt eléggé látható — innen is hivatkozva.
+- **„+N” rejtett kép a rácsban:** egy 4-nél több fotós rács utolsó csempéjén lévő „+N” felirat mögötti képeknek nincs `<img>`-jük, ezért a `📷`-szám (`map()`, `flagsOf`) eddig alulszámolt; most a csempe feliratát is beleszámítja (`peek()` ⚠-vel jelzi, hogy ez becslés).
+
 ## [0.13.2] - 2026-10-24
 
 ### Javítva (élő teszt: J&A AI Imaging profil, azonos kezdetű posztok)
