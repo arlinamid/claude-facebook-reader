@@ -35,7 +35,9 @@ returns clean Markdown/JSON.
 - **Writing (only with approval):** comment, reply to one specific comment (`replyBox`), reaction, post,
   message. The module only locates and reports the target (on whose behalf, who is replied to, attachments,
   send button, warnings); the click and the typing are Claude's, under the hook's supervision and your
-  approval. See *Write protection*.
+  approval. See *Write protection*. **Photo attachments must be JPG/PNG/GIF** — Facebook's post composer
+  rejects `.webp` uploads outright ("A fájlodat nem sikerült feltölteni" / "file format is not supported");
+  convert with e.g. `magick in.webp out.jpg` before approving the attachment.
 - **Offline:** saved HTML or the `posts.json` export of `facebook-private-group-scraper` → Markdown.
 
 ## Write protection (security hook)

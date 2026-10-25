@@ -28,6 +28,8 @@ amit egy ember lát, és tiszta Markdownt/JSON-t ad vissza.
 - **Írás (csak jóváhagyással):** komment, válasz egy adott kommentre (`replyBox`), reakció és poszt. A modul csak
   megkeresi és jelenti a célt (kinek a nevében, kinek válaszol, csatolmányok, küldés gomb, figyelmeztetések),
   a kattintás és a gépelés Claude-é, a hook felügyelete és a te jóváhagyásod mellett. Lásd: *Írásvédelem*.
+  **A csatolt képnek JPG/PNG/GIF-nek kell lennie** — a Facebook posztszerkesztője elutasítja a `.webp`
+  feltöltést ("A fájlodat nem sikerült feltölteni"); jóváhagyás előtt konvertáld, pl. `magick in.webp out.jpg`.
 - **Offline:** mentett HTML vagy a `facebook-private-group-scraper` `posts.json` exportja → Markdown.
 
 ## Írásvédelem (biztonsági hook)
