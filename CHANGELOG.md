@@ -5,6 +5,14 @@ az `[Unreleased]` blokk tartalma kerül az új verzió alá.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-26
+
+### Javítva (élő teszt egy valódi reel-oldalon és a felhasználó saját Facebook-fotóin, Claude in Chrome-mal)
+- **`activeReel()` egységfelismerés szomszédos reelbe folyt bele:** a rail-felismerés (`hasRailAndCaption`) a "Tetszik" gomb pontos egyezését várta, de ha a néző már reagált a videóra, a gomb `aria-label`-je „Tetszik eltávolítása", nem puszta „Tetszik" — ez sosem illett, ezért a klímázás sosem talált egységet az egyetlen-videós szinteken, és a távolság-alapú tartalék egy tágabb, két videót (a jelenlegi + egy előtöltött szomszéd reel) tartalmazó ősre esett vissza. A `LIKE_WORD_RE` / `SHARE_BTN_RE` mostantól előtag-egyezést fogad el (nem csak pontos egyezést), így a „Tetszik eltávolítása" / „Megosztás, N megosztás" alakok is illenek.
+- **Reel-számlálók (👍💬↗) hiányoztak:** a `reelActionCounts()` csak a gomb melletti testvér-elemekben kereste a számot, de a valódi DOM-ban a szám a gomb *saját* alfájában van (pl. a „Tetszik eltávolítása" gomb maga tartalmazza a „663" feliratot). Most előbb a gomb saját alfáját nézi.
+- **🎣 kulcsszó-horgász-felismerés sosem jelzett reel-oldalon:** a `detectBait()` a `pinned` jelzőre épített, de a reel kommentpanelje a szerző saját, felső kommentjét sosem jelöli „rögzítve"-ként (a `aria-label` csak „<Név> hozzászólása (…)", szemben a sima posztokkal/csoportokkal, ahol Facebook explicit „Felül rögzített hozzászólás" jelzést ad) — így a kérdéses komment sosem volt megtalálható, és a felismerés élő reel-en sosem futott le, még a tankönyvi „írd be: Course" mintán sem. Tartalék: ha semmi sincs valódi `pinned`-ként jelölve, a szerző első top-level kommentje számít rögzítettnek.
+- A `photoSet()` / `nav.photoPost()` élő tesztje (a felhasználó saját fotóalbumán) hibát nem talált — a fotó/photoset-olvasás már eddig is helyesen működött.
+
 ## [0.14.0] - 2026-10-26
 
 ### Hozzáadva (reel-támogatás — fixture-teszteken ellenőrizve, **élő reel-oldalon még nem**)

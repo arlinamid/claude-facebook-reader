@@ -21,7 +21,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.14.0';
+  const VERSION = '0.14.1';
   const BUILD = '__BUILD__'; // replaced by build.py with a content hash
 
   // ── Selectors (semantic anchors only) ────────────────────────────────────
@@ -179,10 +179,14 @@
     COMMENTS_COUNT_RE = new RegExp('^[\\d][\\d\\s.,]*\\s*(?:' + kSuf + ')?\\s*(?:' + rAll('commentsWord').join('|') + ')$');
     SHARES_COUNT_RE = new RegExp('^[\\d][\\d\\s.,]*\\s*(?:' + kSuf + ')?\\s*(?:' + rAll('sharesWord').join('|') + ')$');
     REACTIONS_WORD_RE = new RegExp('(?:' + rAll('reactionsWord').join('|') + ')\\s*:?\\s*[\\d]', 'i');
-    // reel action rail: the primary "Like" word (never the full reaction menu) and the bare comment/share action labels (no number attached)
-    LIKE_WORD_RE = new RegExp('^(?:' + alt(pk().map(p => (p.r.reaction || [])[0]).filter(Boolean)) + ')$', 'i');
+    // reel action rail: the primary "Like" word (never the full reaction menu) and the bare comment/share action labels (no number attached).
+    // Not end-anchored: once the viewer has already reacted/shared, Facebook extends the label ("Tetszik eltávolítása" /
+    // "Megosztás, 99 megosztás") — a full-string match would silently miss the rail and make activeReel() fall back to a
+    // wider, unverified ancestor (seen live: it pulled in a second, preloaded reel). A start-anchored prefix match still
+    // only matches an actual like/share button, since aria-label/innerText on these controls never has leading text.
+    LIKE_WORD_RE = new RegExp('^(?:' + alt(pk().map(p => (p.r.reaction || [])[0]).filter(Boolean)) + ')', 'i');
     COMMENT_BTN_RE = RX('commentsWord', '^', '$');
-    SHARE_BTN_RE = RX('sharesWord', '^', '$');
+    SHARE_BTN_RE = RX('sharesWord', '^');
     REEL_NEXT_RE = new RegExp('^(?:' + alt(wAll('reelNext')) + ')$', 'i');
     REEL_PREV_RE = new RegExp('^(?:' + alt(wAll('reelPrev')) + ')$', 'i');
     ORIGINAL_AUDIO_RE = new RegExp('(?:' + alt(wAll('originalAudio')) + ')', 'i');
@@ -540,7 +544,9 @@
     return { video, unit, id: reelIdFromUrl() };
   }
   // rail numbers (reactions/comments/shares) are bare numbers under icon-only buttons, not the "Tetszik: N
-  // ember" aria-labels extractCounts() reads for posts — not yet confirmed against a live reel DOM, see troubleshooting.md
+  // ember" aria-labels extractCounts() reads for posts. Live DOM check (2026-10-26): the count is a
+  // descendant INSIDE the button itself (e.g. "Tetszik eltávolítása" wraps its own "663" span) at least as
+  // often as it is a sibling, so that must be checked first — see troubleshooting.md.
   function reelActionCounts(unit) {
     const out = { reactions: null, comments: null, shares: null };
     const matchers = { reactions: LIKE_WORD_RE, comments: COMMENT_BTN_RE, shares: SHARE_BTN_RE };
@@ -549,8 +555,9 @@
     for (const key of Object.keys(matchers)) {
       const btn = cands.find(b => matchers[key].test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
       if (!btn) continue;
-      // the number is almost always the next sibling (icon above/next to a bare count), never inside the button
-      let numEl = null;
+      // 1) inside the button's own subtree (the common case on reels)
+      let numEl = isNum(btn) ? btn : [...btn.querySelectorAll('span, div')].find(isNum);
+      // 2) the next sibling (icon above/next to a bare count)
       for (let sib = btn.nextElementSibling, hops = 0; sib && hops < 4 && !numEl; sib = sib.nextElementSibling, hops++) {
         numEl = isNum(sib) ? sib : [...sib.querySelectorAll('span, div')].find(isNum);
       }
@@ -648,7 +655,12 @@
   // word, ≥60% of top-level comments being that word (+ optional suffix), summarised as one line instead of
   // N identical rows — see thread()'s bait option
   function detectBait(comments) {
-    const pinned = comments.find(c => c.pinned && c.isAuthor) || comments.find(c => c.pinned);
+    // Live DOM check (2026-10-26): a reel's comment panel never marks the author's own ask comment
+    // "pinned" the way a page/group post does (its aria-label is just "<name> hozzászólása (…)"), so
+    // the first top-level author comment is the de-facto pinned slot there — only used when nothing
+    // is actually flagged pinned, so ordinary posts keep using the real flag.
+    const pinned = comments.find(c => c.pinned && c.isAuthor) || comments.find(c => c.pinned)
+      || comments.find(c => c.depth === 0 && c.isAuthor);
     if (!pinned?.text) return null;
     let word = null;
     for (const re of BAIT_ASK_RES) { const m = re.exec(pinned.text); if (m) { word = m[m.length - 1]; break; } }
