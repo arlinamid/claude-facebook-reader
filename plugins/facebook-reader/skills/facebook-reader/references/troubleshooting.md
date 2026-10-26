@@ -53,4 +53,12 @@
 | `trackCheck()` says "nem követett" | `trackAdd()` first (on that page); the store is per browser profile |
 | `trackCheck()` says the page is not readable | wait 3–4 s after `navigate`, then retry; a deleted/expired listing shows an error page |
 | the extension never checks in the background | the popup switch is OFF by default; it also skips quiet hours (22–8), the daily cap and items checked within the interval; a login/checkpoint redirect switches it off again |
+| `activeReel()` picked a preloaded neighbour, not the one in view | the neighbour was reported as "playing" (headless/background tabs often never autoplay anything, so this should not happen with real playback) — check `pageInfo().type === 'reel'` and that the active unit is actually in the viewport; report as a bug with `render(snapshot())` |
+| `expandComments()` on a reel returns `{clicked:0, error:'a kommentpanel nincs nyitva…'}` | the side comment panel is not open yet: `nav.reelComments()` → `find "[fbr:reel-comments]"` → click, then retry |
+| `nav.reelNext()` / `nav.reelPrev()` says "nincs ilyen gomb" | this reel has no next/previous arrow in the DOM (common on a single shared reel link, outside the swipe feed) — nothing to tag; navigate by URL instead |
+| `thread()` on a reel hides a comment you wanted to see | a `🎣` keyword-bait line folds matching replies by design; `thread({bait:false})` lists everything, `thread({only:'other'})` lists only the non-matching ones |
+| `where()` says `kommentpanel: zárva` right after `nav.reelComments()` | tagging never clicks, so the panel is still closed; click the tagged button first |
+| `fb_tool.py transcribe --speech` says "faster-whisper nincs telepítve" | `pip install faster-whisper` |
+| `fb_tool.py transcribe --ocr` says "tesseract nincs telepítve" | install Tesseract OCR with the `eng`+`hun` language data and put it on `PATH` (e.g. `apt install tesseract-ocr tesseract-ocr-hun` / the Windows installer's language-data option) |
+| `fb_tool.py transcribe --subs` finds nothing | that upload has no Facebook-provided or auto-generated captions; use `--speech` instead |
 

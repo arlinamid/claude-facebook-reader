@@ -21,7 +21,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.13.3';
+  const VERSION = '0.14.1';
   const BUILD = '__BUILD__'; // replaced by build.py with a content hash
 
   // ── Selectors (semantic anchors only) ────────────────────────────────────
@@ -62,6 +62,7 @@
         noise: ['továbbiak', 'kevesebb megjelenítése', 'tetszik', 'hozzászólás', 'megosztás', 'válasz', 'követés', 'csatlakozás', 'fordítás megtekintése'],
         seeLess: ['kevesebb megjelenítése'], translate: ['fordítás megtekintése'], viewPost: ['bejegyzés megtekintése'],
         nextPhoto: ['következő fénykép', 'következő videó', 'következő'], prevPhoto: ['előző fénykép', 'előző videó', 'előző'],
+        reelNext: ['következő videó'], reelPrev: ['előző videó'], originalAudio: ['eredeti hang'],
         sponsored: ['hirdetés', 'szponzorált', 'támogatott', 'fizetett partnerség'], verified: ['ellenőrzött fiók', 'hitelesített'],
         person: ['ember'],
         keep: ('tetszik szuper imádom törődöm haha vicces hűha szomorú dühös reagálás reakció reakciók hozzászólás hozzászólása hozzászólására válasz válasza ' +
@@ -83,6 +84,7 @@
         authorBadge: ['szerző', 'a szerző', 'alkotó'], badgeLine: ['legjobb hozzászóló', 'felül rögzített( hozzászólás)?'],
         sortAll: ['(az )?összes hozzászólás'], sortNewest: ['(a )?(legújabbak|legfrissebb(ek)?)'], sortRelevant: ['(a )?legrelevánsabb(ak)?'], sortOther: ['(a )?legrégebbi(ek)?'],
         postBy: ['^(.+?)\\s+bejegyzése$'], replyTo: ['^válasz\\b.*?\\bneki:?\\s+(.+?)$'],
+        baitAsk: ['írd (?:be|meg)\\s+[„"]?(\\w+)'], viewReplies: ['(\\d+)\\s*válasz megtekintése'],
       },
       // aria-label of a comment: groups a = author, to = addressee (replies), when = age
       commentLabels: [
@@ -105,6 +107,7 @@
         noise: ['see more', 'see less', 'like', 'comment', 'share', 'reply', 'follow', 'join', 'see translation'],
         seeLess: ['see less'], translate: ['see translation'], viewPost: ['view post'],
         nextPhoto: ['next photo', 'next video', 'next'], prevPhoto: ['previous photo', 'previous video', 'previous'],
+        reelNext: ['next video'], reelPrev: ['previous video'], originalAudio: ['original audio'],
         sponsored: ['sponsored', 'promoted', 'paid partnership'], verified: ['verified account'],
         person: ['people', 'person'],
         keep: ('like love care sad angry wow comment reply share see more view all posts photo video by as author pinned ago just now yesterday ' +
@@ -123,6 +126,7 @@
         authorBadge: ['author', 'creator'], badgeLine: ['top fan', 'top contributor', 'pinned( comment)?'],
         sortAll: ['all comments'], sortNewest: ['newest', 'most recent'], sortRelevant: ['most relevant'], sortOther: ['oldest'],
         postBy: ['^(.+?)[\'’]s post$'], replyTo: ['^reply\\b.*?\\bto\\s+(.+?)(?:[\'’]s comment)?$'],
+        baitAsk: ['comment\\s+["“]?(\\w+)'], viewReplies: ['view\\s+(\\d+)\\s*repl(?:y|ies)'],
       },
       commentLabels: [
         { re: '^(?:comment|reply)\\s+by\\s+(.+?)\\s+((?:\\d+|an?|one)\\s+\\w+\\s+ago|yesterday|just now)$', a: 1, when: 2 },
@@ -141,7 +145,8 @@
   // derived vocabulary (rebuilt by buildVocab() whenever a pack is registered); the names below are used all over the reader
   let COMMENT_LABEL_RE, SEE_MORE, MORE_COMMENTS_RE, UI_NOISE, PUBLISH_RE, MONTHS, MONTH_HINT_RE, UI_LINE_RE, CNT, UNIT, REL_RE, YESTERDAY_RE, NOW_RE, AMPM_RE,
     REACTION_RE, BARE_NUM_RE, PINNED_RE, AUTHOR_BADGE_RE, BADGE_LINE_RE, SPONSORED_RE, SORT_RE, SORT_ANY, VERIFIED_RE, VERIFIED_SEL, REACTION_ATTR_SEL, SKIP_DATE_RE,
-    COMMENT_LABEL_PARSE, REPLY_TO_RES, POST_BY_RES, VIEW_POST_RE, NEXT_PHOTO_RE, PREV_PHOTO_RE, KEEP_WORDS, NOTIF_TIME_RE, COMMENTS_COUNT_RE, SHARES_COUNT_RE, REACTIONS_WORD_RE, AM, PM;
+    COMMENT_LABEL_PARSE, REPLY_TO_RES, POST_BY_RES, VIEW_POST_RE, NEXT_PHOTO_RE, PREV_PHOTO_RE, KEEP_WORDS, NOTIF_TIME_RE, COMMENTS_COUNT_RE, SHARES_COUNT_RE, REACTIONS_WORD_RE, AM, PM,
+    LIKE_WORD_RE, COMMENT_BTN_RE, SHARE_BTN_RE, REEL_NEXT_RE, REEL_PREV_RE, ORIGINAL_AUDIO_RE, VIEW_REPLIES_RE, BAIT_ASK_RES;
   function buildVocab() {
     COMMENT_LABEL_RE = RX('commentLabel');
     SEE_MORE = wAll('seeMore');
@@ -174,6 +179,19 @@
     COMMENTS_COUNT_RE = new RegExp('^[\\d][\\d\\s.,]*\\s*(?:' + kSuf + ')?\\s*(?:' + rAll('commentsWord').join('|') + ')$');
     SHARES_COUNT_RE = new RegExp('^[\\d][\\d\\s.,]*\\s*(?:' + kSuf + ')?\\s*(?:' + rAll('sharesWord').join('|') + ')$');
     REACTIONS_WORD_RE = new RegExp('(?:' + rAll('reactionsWord').join('|') + ')\\s*:?\\s*[\\d]', 'i');
+    // reel action rail: the primary "Like" word (never the full reaction menu) and the bare comment/share action labels (no number attached).
+    // Not end-anchored: once the viewer has already reacted/shared, Facebook extends the label ("Tetszik eltávolítása" /
+    // "Megosztás, 99 megosztás") — a full-string match would silently miss the rail and make activeReel() fall back to a
+    // wider, unverified ancestor (seen live: it pulled in a second, preloaded reel). A start-anchored prefix match still
+    // only matches an actual like/share button, since aria-label/innerText on these controls never has leading text.
+    LIKE_WORD_RE = new RegExp('^(?:' + alt(pk().map(p => (p.r.reaction || [])[0]).filter(Boolean)) + ')', 'i');
+    COMMENT_BTN_RE = RX('commentsWord', '^', '$');
+    SHARE_BTN_RE = RX('sharesWord', '^');
+    REEL_NEXT_RE = new RegExp('^(?:' + alt(wAll('reelNext')) + ')$', 'i');
+    REEL_PREV_RE = new RegExp('^(?:' + alt(wAll('reelPrev')) + ')$', 'i');
+    ORIGINAL_AUDIO_RE = new RegExp('(?:' + alt(wAll('originalAudio')) + ')', 'i');
+    VIEW_REPLIES_RE = RX('viewReplies');
+    BAIT_ASK_RES = pk().flatMap(p => (p.r.baitAsk || []).map(x => new RegExp(x, 'i')));
     PINNED_RE = RX('pinned', '^', '$');
     AUTHOR_BADGE_RE = RX('authorBadge', '^[–—·•-]?\\s*', '$');
     BADGE_LINE_RE = new RegExp('^[–—·•-]?\\s*(?:' + [...rAll('authorBadge'), ...rAll('badgeLine')].join('|') + ')$', 'i');
@@ -445,7 +463,18 @@
     return !!(outer && !art.querySelector(SEL.message));
   }
 
+  // the reel unit findPostRoots() last handed out; extractPost()/extractComments() special-case it (comments
+  // live in a separate side panel, not nested inside the unit) without needing a reel-specific call signature
+  let REEL_UNIT = null;
+
   function findPostRoots(scope = document) {
+    if (scope === document && pageInfo().type === 'reel') {
+      const ar = activeReel();
+      REEL_UNIT = ar ? ar.unit : null;
+      if (ar) return [ar.unit];
+    } else if (scope === document) {
+      REEL_UNIT = null;
+    }
     const roots = new Set();
     // 1. Feed items (groups, pages, profiles, home)
     scope.querySelectorAll(SEL.feedPost).forEach(el => roots.add(el));
@@ -472,6 +501,200 @@
     const arr = [...roots];
     return arr.filter(r => !arr.some(o => o !== r && o.contains(r)));
   }
+
+  // ── Reel support (/reel/<id>): the caption + action rail sit in [role="main"] with no [role="article"]
+  // and no data-ad-rendering-role marker, and the player preloads neighbouring reels (several large <video>
+  // tags at once) — activeReel() picks the one actually playing / centred, never a preloaded neighbour.
+  const reelIdFromUrl = (href = location.href) => (/\/reel\/(\d+)/.exec(href) || [])[1] || null;
+  const bigVideos = scope => [...scope.querySelectorAll('video')].filter(v => { const r = v.getBoundingClientRect(); return r.width > 200 && r.height > 200; });
+  function hasRailAndCaption(el) {
+    const like = [...el.querySelectorAll('[role="button"], div[aria-label]')].some(b => LIKE_WORD_RE.test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
+    const cap = [...el.querySelectorAll('[dir="auto"]')].some(e => !e.closest('[role="button"]') && !isDecoy(e) && unsalt(e.innerText || '').trim().length > 20);
+    return like && cap;
+  }
+  function activeReel() {
+    const main = document.querySelector('[role="main"]') || document;
+    const cy = innerHeight / 2;
+    const vids = bigVideos(main).map(v => ({ v, r: v.getBoundingClientRect() }))
+      .filter(({ r }) => r.bottom > 0 && r.top < innerHeight)
+      // playing beats paused; then closest to the vertical centre
+      .sort((a, b) => (a.v.paused - b.v.paused) || Math.abs((a.r.top + a.r.bottom) / 2 - cy) - Math.abs((b.r.top + b.r.bottom) / 2 - cy));
+    const video = vids[0]?.v;
+    if (!video) return null;
+    // climb to the smallest ancestor that holds the rail AND the caption but never one that already
+    // contains a second large video (a preloaded neighbour)
+    let unit = video, found = false;
+    while (unit.parentElement && unit.parentElement !== document.body) {
+      if (bigVideos(unit.parentElement).length !== 1) break;
+      unit = unit.parentElement;
+      if (hasRailAndCaption(unit)) { found = true; break; }
+    }
+    if (!found && hasRailAndCaption(unit)) found = true;
+    if (!found) {
+      // fallback: the rail and caption closest to the active video's bounding box, from candidates in [role="main"]
+      const vb = video.getBoundingClientRect(), mid = r => [(r.top + r.bottom) / 2, (r.left + r.right) / 2];
+      const [vy, vx] = mid(vb);
+      const dist = el => { const r = el.getBoundingClientRect(); const [y, x] = mid(r); return Math.abs(y - vy) + Math.abs(x - vx); };
+      const rail = [...main.querySelectorAll('[role="button"], div[aria-label]')].filter(b => LIKE_WORD_RE.test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim())).sort((a, b) => dist(a) - dist(b))[0];
+      const cap = [...main.querySelectorAll('[dir="auto"]')].filter(e => !e.closest('[role="button"]') && !isDecoy(e) && unsalt(e.innerText || '').trim().length > 20).sort((a, b) => dist(a) - dist(b))[0];
+      let anc = (rail && cap) ? video : null;
+      while (anc && !(anc.contains(rail) && anc.contains(cap))) anc = anc.parentElement;
+      unit = anc || main;
+    }
+    return { video, unit, id: reelIdFromUrl() };
+  }
+  // rail numbers (reactions/comments/shares) are bare numbers under icon-only buttons, not the "Tetszik: N
+  // ember" aria-labels extractCounts() reads for posts. Live DOM check (2026-10-26): the count is a
+  // descendant INSIDE the button itself (e.g. "Tetszik eltávolítása" wraps its own "663" span) at least as
+  // often as it is a sibling, so that must be checked first — see troubleshooting.md.
+  function reelActionCounts(unit) {
+    const out = { reactions: null, comments: null, shares: null };
+    const matchers = { reactions: LIKE_WORD_RE, comments: COMMENT_BTN_RE, shares: SHARE_BTN_RE };
+    const cands = [...unit.querySelectorAll('[role="button"], div[aria-label]')];
+    const isNum = e => e.children.length === 0 && BARE_NUM_RE.test(unsalt(e.innerText || e.textContent || '').trim());
+    for (const key of Object.keys(matchers)) {
+      const btn = cands.find(b => matchers[key].test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
+      if (!btn) continue;
+      // 1) inside the button's own subtree (the common case on reels)
+      let numEl = isNum(btn) ? btn : [...btn.querySelectorAll('span, div')].find(isNum);
+      // 2) the next sibling (icon above/next to a bare count)
+      for (let sib = btn.nextElementSibling, hops = 0; sib && hops < 4 && !numEl; sib = sib.nextElementSibling, hops++) {
+        numEl = isNum(sib) ? sib : [...sib.querySelectorAll('span, div')].find(isNum);
+      }
+      if (!numEl) { // fallback: the button's own column, excluding the button's own subtree
+        const col = btn.parentElement;
+        numEl = col && [...col.querySelectorAll('span, div')].find(e => e !== btn && !btn.contains(e) && isNum(e));
+      }
+      if (numEl) out[key] = parseCount(unsalt(numEl.innerText || numEl.textContent).trim());
+    }
+    return out;
+  }
+  const CHAPTER_RE = /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/;
+  const parseChapters = text => String(text || '').split('\n').map(l => CHAPTER_RE.exec(l.trim())).filter(Boolean).map(m => ({ t: m[1], title: m[2] }));
+  function reelCaptionEl(unit) {
+    return [...unit.querySelectorAll('[dir="auto"]')]
+      .filter(e => !isDecoy(e) && isShown(e, unit) && !e.closest('[role="button"], a[href]') && !isScrambledRun(e))
+      .sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0] || null;
+  }
+  // reel() returns the normal post schema (kind:'reel' marks it) so render/q/contentKey/harvest keep working;
+  // extractPost() delegates to this (minus the "Továbbiak" expansion, which needs an await) whenever the root
+  // is the current REEL_UNIT, so map/peek/thread/full/where/go all work on a reel page for free.
+  function extractReelFields(unit) {
+    const id = reelIdFromUrl();
+    const url = cleanUrl(`${FB}/reel/${id || postIdFromUrl(location.href) || ''}`);
+    const author = extractAuthor(unit);
+    const capEl = reelCaptionEl(unit);
+    const rawCap = capEl ? stripUi(capEl.innerText) : '';
+    const truncated = [...unit.querySelectorAll('[role="button"], div[tabindex="0"]')].some(b => SEE_MORE.includes((b.innerText || '').trim().toLowerCase()));
+    const d = extractDateClean(unit), parsed = parseFbDate(d.raw);
+    const video = bigVideos(document.querySelector('[role="main"]') || document).find(v => unit.contains(v)) || unit.querySelector('video');
+    const audioLine = rawCap.split('\n').find(l => ORIGINAL_AUDIO_RE.test(l)) || null;
+    return {
+      kind: 'reel', postId: id, url,
+      author: author.name, authorUrl: author.url, authorBadges: author.badges, authorVerified: author.verified,
+      sponsored: false, date: parsed.iso, dateApprox: parsed.approx, dateRaw: d.raw, dateMethod: d.method,
+      text: rawCap || null, textTruncated: truncated, sharedText: null,
+      hashtags: [...new Set((rawCap.match(/#\w+/gu) || []))],
+      chapters: parseChapters(rawCap),
+      links: [], cards: [], images: [], hiddenImages: 0, videos: [url], hasVideo: true,
+      counts: reelActionCounts(unit), position: null,
+      duration: video && isFinite(video.duration) ? video.duration : null, audio: audioLine,
+    };
+  }
+  // reel({budgetMs}) — like extractPost() on the active reel, but first clicks "Továbbiak" inside the unit
+  // (async, so it cannot run inside the synchronous extractPost()/feedRows() pipeline that map/peek/thread use)
+  async function reel(opts = {}) {
+    const ar = activeReel();
+    if (!ar) return null;
+    await expandSeeMore({ roots: [ar.unit], rounds: 2, budgetMs: opts.budgetMs || 4000 });
+    return extractReelFields(ar.unit);
+  }
+  // the reel's own comment side panel: a visible [role="complementary"] (fallback: a non-viewer dialog)
+  // holding [role="article"]s whose aria-label matches the usual comment patterns (COMMENT_LABEL_RE already
+  // covers the reel wording — "X hozzászólása (…)" / "Comment by X …" — no reel-specific parsing needed)
+  function reelCommentPanel() {
+    const hasComments = d => isShown(d) && d.getBoundingClientRect().height > 0 && [...d.querySelectorAll(SEL.article)].some(a => COMMENT_LABEL_RE.test(a.getAttribute('aria-label') || ''));
+    return [...document.querySelectorAll('[role="complementary"]')].find(hasComments)
+      || [...document.querySelectorAll(SEL.dialog)].find(d => !d.querySelector('video') && hasComments(d)) || null;
+  }
+  function reelCommentProgress(panel) {
+    if (!panel) return { btn: null, loaded: null, total: null };
+    const btn = [...panel.querySelectorAll('[role="button"], span[role="button"], div[tabindex="0"]')]
+      .find(b => { const t = unsalt(b.innerText || '').trim(); return t && t.length <= 60 && MORE_COMMENTS_RE.test(t) && !b.hasAttribute('aria-haspopup') && !b.hasAttribute('aria-expanded'); });
+    const m = btn && /(\d+)\s*\/\s*(\d+)/.exec(unsalt(btn.innerText || ''));
+    return { btn: btn || null, loaded: m ? +m[1] : null, total: m ? +m[2] : null };
+  }
+  // panel paging: a counter ("6 / 32") + a button, not scroll-loaded — at most 4 clicks per call, 1.5–2.5 s apart
+  async function expandReelComments({ rounds = 4, budgetMs = 7000, replies = false } = {}) {
+    const panel = reelCommentPanel();
+    if (!panel) return { clicked: 0, done: true, error: 'a kommentpanel nincs nyitva · nyisd meg: nav.reelComments() → kattintás' };
+    const t0 = Date.now();
+    let clicked = 0, prog = reelCommentProgress(panel);
+    for (let i = 0; i < Math.min(rounds, 4) && Date.now() - t0 < budgetMs - 1800; i++) {
+      prog = reelCommentProgress(panel);
+      if (!prog.btn || (prog.total != null && prog.loaded != null && prog.loaded >= prog.total)) break;
+      if (!safeToClick(prog.btn)) break;
+      prog.btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      clicked++;
+      await sleep(jitter(2000, 1000)); // 1.5–2.5 s
+      prog = reelCommentProgress(panel);
+    }
+    if (replies && Date.now() - t0 < budgetMs - 500) {
+      for (const b of panel.querySelectorAll('[role="button"], span[role="button"]')) {
+        if (Date.now() - t0 > budgetMs - 300) break;
+        if (!VIEW_REPLIES_RE.test(unsalt(b.innerText || '').trim()) || !safeToClick(b)) continue;
+        b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await sleep(jitter(900, 300));
+      }
+    }
+    await expandSeeMore({ roots: [panel], rounds: 1, budgetMs: Math.max(500, budgetMs - (Date.now() - t0)) });
+    const done = !prog.btn || (prog.total != null && prog.loaded != null && prog.loaded >= prog.total) || Date.now() - t0 >= budgetMs - 200;
+    return { clicked, done, loaded: prog.loaded, total: prog.total };
+  }
+  // keyword-bait funnel ("comment WORD and I'll DM you the link"): a pinned author comment asking for a
+  // word, ≥60% of top-level comments being that word (+ optional suffix), summarised as one line instead of
+  // N identical rows — see thread()'s bait option
+  function detectBait(comments) {
+    // Live DOM check (2026-10-26): a reel's comment panel never marks the author's own ask comment
+    // "pinned" the way a page/group post does (its aria-label is just "<name> hozzászólása (…)"), so
+    // the first top-level author comment is the de-facto pinned slot there — only used when nothing
+    // is actually flagged pinned, so ordinary posts keep using the real flag.
+    const pinned = comments.find(c => c.pinned && c.isAuthor) || comments.find(c => c.pinned)
+      || comments.find(c => c.depth === 0 && c.isAuthor);
+    if (!pinned?.text) return null;
+    let word = null;
+    for (const re of BAIT_ASK_RES) { const m = re.exec(pinned.text); if (m) { word = m[m.length - 1]; break; } }
+    if (!word) return null;
+    const top = comments.filter(c => c.depth === 0 && c !== pinned);
+    if (top.length < 3) return null;
+    const normWord = fold(word).replace(/[^\p{L}]/gu, '');
+    const isWord = t => { const n = fold(t || '').replace(/[^\p{L}]/gu, ''); return n === normWord || n === normWord + 'please' || n === normWord + 'pls' || n === normWord + 'kerem'; };
+    const matches = top.filter(c => isWord(c.text));
+    if (matches.length / top.length < 0.6) return null;
+    const authorReplies = comments.filter(c => c.isAuthor && c.depth > 0 && c.text);
+    let replyText = null;
+    if (authorReplies.length) {
+      const counts = new Map();
+      for (const r of authorReplies) counts.set(fold(r.text), (counts.get(fold(r.text)) || 0) + 1);
+      const [bestKey, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+      if (bestKey && n / authorReplies.length >= 0.5) replyText = authorReplies.find(r => fold(r.text) === bestKey)?.text;
+    }
+    return { word, matches: new Set(matches), matched: matches.length, total: top.length, replyText, other: top.filter(c => !isWord(c.text)) };
+  }
+  // tags an element the same way the (optional) write module does, for screenshots/clicking — never clicks it itself
+  function tagFbr(el, tag) {
+    if (!el) return null;
+    if (!el.hasAttribute('data-fbr-orig')) el.setAttribute('data-fbr-orig', el.getAttribute('aria-label') || '\u0000');
+    const orig = el.getAttribute('data-fbr-orig'), base = orig === '\u0000' ? (el.getAttribute('aria-label') || '') : orig;
+    el.setAttribute('data-fbr-target', '1');
+    el.setAttribute('aria-label', `${base} [fbr:${tag}]`.trim());
+    const b = el.getBoundingClientRect();
+    return { ref: `[fbr:${tag}]`, x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+  }
+  const reelNextButton = () => [...(document.querySelector('[role="main"]') || document).querySelectorAll('[role="button"], a[role="link"]')]
+    .find(b => REEL_NEXT_RE.test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
+  const reelPrevButton = () => [...(document.querySelector('[role="main"]') || document).querySelectorAll('[role="button"], a[role="link"]')]
+    .find(b => REEL_PREV_RE.test(unsalt(b.getAttribute('aria-label') || b.innerText || '').trim()));
 
   // Elements that belong to the post itself, not to its comments
   function ownAll(root, selector) {
@@ -729,11 +952,13 @@
 
 
   function extractComments(root, max = 50, postAuthor = null) {
-    const arts = [...root.querySelectorAll(SEL.article)].filter(a => a !== root && isCommentArticle(a));
+    // a reel's comments live in a separate side panel, never nested inside the reel unit
+    const scope = root === REEL_UNIT ? (reelCommentPanel() || root) : root;
+    const arts = [...scope.querySelectorAll(SEL.article)].filter(a => a !== scope && isCommentArticle(a));
     const out = [];
     for (const art of arts.slice(0, max)) {
       let depth = 0;
-      for (let p = art.parentElement?.closest(SEL.article); p && p !== root && root.contains(p); p = p.parentElement?.closest(SEL.article)) depth++;
+      for (let p = art.parentElement?.closest(SEL.article); p && p !== scope && scope.contains(p); p = p.parentElement?.closest(SEL.article)) depth++;
       const label = unsalt(art.getAttribute('aria-label') || '').trim();
       let lAuthor = null, lWhen = null, replyTo = null;
       for (const c of COMMENT_LABEL_PARSE) { const m = c.re.exec(label); if (m) { lAuthor = m[c.a]; replyTo = (c.to && m[c.to]) || null; lWhen = (c.when && m[c.when]) || null; break; } }
@@ -783,7 +1008,7 @@
   }
 
   // The comment articles of a post in DOM order: c1, c2, … (same numbering as thread()/extractComments)
-  const commentArticles = root => [...root.querySelectorAll(SEL.article)].filter(a => a !== root && isCommentArticle(a));
+  const commentArticles = root => { const scope = root === REEL_UNIT ? (reelCommentPanel() || root) : root; return [...scope.querySelectorAll(SEL.article)].filter(a => a !== scope && isCommentArticle(a)); };
   // Author / addressee / snippet of one comment article (aria-label first, author link as extractComments does)
   function commentInfo(art) {
     const label = unsalt(art.getAttribute('aria-label') || '').trim();
@@ -813,6 +1038,11 @@
   }
 
   function extractPost(root, opts = {}) {
+    if (root === REEL_UNIT) {
+      const post = extractReelFields(root);
+      if (opts.comments) post.comments = flagDateConflicts(post, extractComments(root, opts.maxComments || 50, post.author));
+      return post;
+    }
     const url = extractPostUrl(root);
     const author = extractAuthor(root);
     const { text, sharedText } = extractText(root);
@@ -871,7 +1101,8 @@
     else if (/^\/groups\/(joins|feed|discover|notifications)\b/.test(p)) type = 'groups-index';
     else if (/\/groups\/[^/]+\/search\b/.test(p)) type = 'group-search';
     else if (/\/groups\/[^/]+\/?$/.test(p) || /\/groups\/[^/]+\/(?!posts)/.test(p)) type = 'group';
-    else if (/\/(videos|watch|reel)\b/.test(p)) type = 'video';
+    else if (/\/reel\/\d+/.test(p) || /\/reels?\//.test(p)) type = 'reel';
+    else if (/\/(videos|watch)\b/.test(p)) type = 'video';
     else if (/\/photo/.test(p)) type = 'photo';
     else if (/\/events\//.test(p)) type = 'event';
     else if (/\/marketplace\//.test(p)) type = 'marketplace';
@@ -1040,7 +1271,8 @@
   // expandComments({post, rounds, budgetMs, sort}) — opens "more comments / replies" of ONE post.
   // post: undefined → open overlay or the post nearest the screen centre · '#a3f9' / selector as in resolvePost · 'all' → every post in scope.
   // Never guesses: an unknown post is an error, and a modal that opens for a different post is reported, not used.
-  async function expandComments({ rounds = 3, scope = document, budgetMs = 7000, post, sort = 'all' } = {}) {
+  async function expandComments({ rounds = 3, scope = document, budgetMs = 7000, post, sort = 'all', replies = false } = {}) {
+    if (post !== 'all' && pageInfo().type === 'reel') return expandReelComments({ rounds: Math.min(rounds, 4), budgetMs, replies });
     let roots;
     if (post === 'all') roots = findPostRoots(scope);
     else {
@@ -1389,7 +1621,16 @@
     const { limit = 12, offset = 0, w = 55, maxChars = 900, unseen = false, ads = false, author = null, by = null, date = null } = opts;
     const seen = seenSet(), pg = pageInfo();
     let rows = feedRows();
+    // on a reel page feedRows() only ever has the active unit (findPostRoots() hides the feed Facebook keeps
+    // loaded behind the viewer); map({background:true}) brings it back, clearly tagged, never mixed in silently
     const unstable = rows.unstable || 0;
+    if (pg.type === 'reel' && opts.background) {
+      for (const el of document.querySelectorAll(SEL.feedPost)) {
+        let p; try { p = extractPost(el); } catch (e) { continue; }
+        if (!isRealPost(p)) continue;
+        rows.push({ h: hashStr('bg' + (p.postId || contentKey(p))), p, root: el, live: true, background: true });
+      }
+    }
     const adN = rows.filter(r => r.p.sponsored).length;
     if (!ads) rows = rows.filter(r => !r.p.sponsored);
     if (author) rows = rows.filter(r => fold(r.p.author).includes(fold(author)));
@@ -1414,7 +1655,7 @@
     const sel = rows.slice(offset, offset + limit);
     const lines = sel.map(r => {
       const p = r.p;
-      return `${r.h}${r.live ? '' : '↑'}${seen.has(r.h) ? '' : '•'} ${ago(p)} ${clipS(p.author, 18) || '?'}: ${clipS(headText(p), w) || '-'} ${cntOf(p)} ${flagsOf(p)}`.replace(/\s+$/, '');
+      return `${r.h}${r.live ? '' : '↑'}${seen.has(r.h) ? '' : '•'} ${ago(p)} ${clipS(p.author, 18) || '?'}: ${clipS(headText(p), w) || '-'} ${cntOf(p)} ${flagsOf(p)}${r.background ? ' háttér' : ''}`.replace(/\s+$/, '');
     });
     if (!lines.length) return `map ${meta} · (a szűrésnek nincs találata)`;
     return fitLines(n => `map ${meta} · ${offset + 1}–${offset + n}`, lines,
@@ -1449,19 +1690,32 @@
 
   // thread(ref?, {top=8, offset, chars=100, only:'author'|'media'|'links'|'replies', match})
   async function thread(ref, opts = {}) {
-    const { top = 8, offset = 0, chars = 100, only = null, match = null, maxChars = 900 } = opts;
+    const { top = 8, offset = 0, chars = 100, only = null, match = null, maxChars = 900, bait = true } = opts;
     const row = await ensureLive(ref);
     if (!row) return noRow(ref);
     markSeen([row.h]);
-    const all = withComments(row).map((c, i) => ({ c, n: i + 1 }));
+    const isReel = row.p.kind === 'reel';
+    const comments = withComments(row);
+    const all = comments.map((c, i) => ({ c, n: i + 1 }));
+    // keyword-bait funnels ("comment WORD…"): detected whenever bait!==false, listing hides the matches
+    // (bait!==false) unless the caller already asked for only the keyword replies themselves
+    const baitInfo = bait !== false && isReel ? detectBait(comments) : null;
     const m = match == null ? null : match instanceof RegExp ? c => match.test(c.text || '') : (s => c => fold(c.text).includes(s))(fold(String(match)));
-    const okOnly = { author: c => c.pinned || c.isAuthor, media: c => c.media?.length, links: c => c.links?.length, replies: c => c.depth > 0 }[only];
-    let sel = all.filter(({ c }) => (!okOnly || okOnly(c)) && (!m || m(c)));
+    const okOnly = { author: c => c.pinned || c.isAuthor, media: c => c.media?.length, links: c => c.links?.length, replies: c => c.depth > 0, other: () => true }[only];
+    let sel = all.filter(({ c }) => (!okOnly || okOnly(c)) && (!m || m(c)) && !(baitInfo && baitInfo.matches.has(c)));
     sel = sel.map((x, i) => ({ ...x, i })).sort((a, b) => ((b.c.pinned || b.c.isAuthor ? 1 : 0) - (a.c.pinned || a.c.isAuthor ? 1 : 0)) || a.i - b.i);
     const total = sel.length;
-    const lines = sel.slice(offset, offset + top).map(({ c, n }) =>
-      `c${n}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''}${c.dateConflict ? '⚠' : ''} ${c.depth ? '↳' + (c.replyTo ? clipS(c.replyTo, 12) + '←' : '') : ''}${clipS(c.author, 16)}: ${clipS(c.text || '', chars)}${c.media?.length ? ' 📷' + c.media.length : ''}${c.links?.length ? ' 🔗' : ''}`);
+    const baitLine = baitInfo ? `🎣 kulcsszó-kampány: „${baitInfo.word}" ${baitInfo.matched}/${baitInfo.total}${baitInfo.replyText ? ` · szerző válasza: „${clipS(baitInfo.replyText, 40)}" (DM-es link, valószínűleg fizetős)` : ''} · egyéb hozzászólás: ${baitInfo.other.length}` : null;
+    const lines = [...(baitLine ? [baitLine] : []), ...sel.slice(offset, offset + top).map(({ c, n }) =>
+      `c${n}${c.pinned ? '📌' : ''}${c.isAuthor ? '✍' : ''}${c.dateConflict ? '⚠' : ''} ${c.depth ? '↳' + (c.replyTo ? clipS(c.replyTo, 12) + '←' : '') : ''}${clipS(c.author, 16)}: ${clipS(c.text || '', chars)}${c.media?.length ? ' 📷' + c.media.length : ''}${c.links?.length ? ' 🔗' : ''}`)];
     const loaded = all.length, declared = row.p.counts?.comments;
+    let head;
+    if (isReel) {
+      const prog = reelCommentProgress(reelCommentPanel());
+      head = `thread #${row.h} · ${total}${only || m ? ' szűrt' : ''}/${loaded} betöltve${declared != null ? ` (${declared} van)` : ''}${prog.total != null ? ` · ${prog.loaded ?? loaded}/${prog.total} fő szál betöltve` : ''}`;
+      if (!lines.length) return `${head} · (nincs komment${prog.total ? ' — ' + (prog.loaded != null && prog.loaded < prog.total ? `⤵ await expandComments({post:'#${row.h}'})` : 'a panel szerint nincs több') : ''})`;
+      return fitLines(head, lines, n => { const shown = n - (baitLine ? 1 : 0); return [offset + shown < total ? `… +${total - offset - shown}: thread('#${row.h}',{offset:${offset + shown}})` : '', prog.total != null && (prog.loaded ?? loaded) < prog.total ? `⤵ await expandComments({post:'#${row.h}'})` : '', `teljes: full('#${row.h}','c3')`].filter(Boolean).join(' · '); }, maxChars);
+    }
     const ex = lastExpand.get(contentKey(row.p)), gap = declared != null ? declared - loaded : 0;
     const inOverlay = !!row.root && (row.root.matches(SEL.dialog) || !!row.root.closest(SEL.dialog));
     const gapNote = gap > 0 ? (row.live && !inOverlay && loaded === 0
@@ -1469,7 +1723,7 @@
       : ex && ex.clicked === 0 && ex.done
       ? `${gap} hiányzik: valószínűleg törölt/rejtett/szűrt (a számláló válaszokat és eltávolítottakat is számolhat), nincs több gomb`
       : `⤵ ${gap} nincs betöltve: await expandComments({post:'#${row.h}'})`) : '';
-    const head = `thread #${row.h} · ${total}${only || m ? ' szűrt' : ''}/${loaded} betöltve${declared != null && declared > loaded ? ` (${declared} van)` : ''}`;
+    head = `thread #${row.h} · ${total}${only || m ? ' szűrt' : ''}/${loaded} betöltve${declared != null && declared > loaded ? ` (${declared} van)` : ''}`;
     if (!lines.length) return `${head} · (nincs komment${declared ? ' — ' + (gapNote || 'a számláló szerint van') : ''})`;
     return fitLines(head, lines, n => [offset + n < total ? `… +${total - offset - n}: thread('#${row.h}',{offset:${offset + n}})` : '', gapNote, `teljes: full('#${row.h}','c3')`].filter(Boolean).join(' · '), maxChars);
   }
@@ -1544,6 +1798,14 @@
     if (pg.type === 'notifications') { const r = notifRows(), s = `notifications · ${r.length} betöltve · ${r.filter(x => x.unread).length} olvasatlan · ${inbox().split(' · ').slice(1, 3).join(' · ')}`; return `${s} · ~${TOK(s.length)}tok`; }
     if (pg.type === 'messages') { const r = threadRows(), open = THREAD_PATH_RE.test(location.pathname); const s = `messages · ${r.length} szál betöltve · ${r.filter(x => x.unread).length} olvasatlan${open ? ' · szál nyitva: msgThread()' : ''}`; return `${s} · ~${TOK(s.length)}tok`; }
     if (pg.type === 'marketplace') { const item = /\/marketplace\/item\//.test(location.pathname); const r = item ? [] : mkRows(); const s = item ? 'marketplace · hirdetés-oldal · listing()' : `marketplace · ${r.filter(x => !x.sponsored).length} hirdetés a DOM-ban (${r.filter(x => x.sponsored).length} szponzorált) · market() / listing('$ref')`; return `${s} · ~${TOK(s.length)}tok`; }
+    if (pg.type === 'reel') {
+      const ar = activeReel(), panel = reelCommentPanel(), prog = reelCommentProgress(panel);
+      const vids = bigVideos(document.querySelector('[role="main"]') || document);
+      const idx = ar ? vids.indexOf(ar.video) + 1 : 0;
+      const t = ar?.video ? `${Math.floor(ar.video.currentTime / 60)}:${String(Math.floor(ar.video.currentTime % 60)).padStart(2, '0')}` : '?';
+      const s = `reel ${ar?.id || reelIdFromUrl() || '?'} · ${t} · ${ar?.video?.paused ? 'szünet' : 'lejátszás'} · ${idx || '?'}/${vids.length || '?'} betöltve · kommentpanel: ${panel ? `nyitva${prog.total != null ? ` (${prog.loaded ?? '?'}/${prog.total})` : ''}` : 'zárva'}`;
+      return `${s} · ~${TOK(s.length)}tok`;
+    }
     const seen = seenSet(), rows = feedRows();
     const vis = rows.filter(r => { if (!r.root) return false; const b = r.root.getBoundingClientRect(); return b.height > 0 && b.bottom > 0 && b.top < innerHeight; }).map(r => '#' + r.h);
     const s = `${pg.type}${pg.heading ? ' · ' + clipS(pg.heading, 40) : ''} · ${scrollPct()}% · DOM ${rows.filter(r => r.live).length} · tár ${harvest.store.size} · új ${rows.filter(r => !seen.has(r.h)).length}/${rows.length} · látszik: ${vis.slice(0, 4).join(' ') || '-'}${pg.dialogOpen ? ' · 🗗 overlay nyitva' : ''}${pg.type === 'photo' ? ' · fotóoldal, poszt: ' + clipS(photoPostHref() || 'nincs link', 80) : ''}${pg.warning ? ' · ⚠ ' + pg.warning : ''}`;
@@ -1561,15 +1823,16 @@
     const dateFail = uniq(posts.filter(p => p.dateRaw && !p.date).map(p => p.dateRaw)).slice(0, limit);
     const dateOk = posts.filter(p => p.date).length;
     const known = new RegExp('^(?:' + [...rAll('moreComments'), ...rAll('publish'), ...rAll('reaction'), ...rAll('pinned'), ...rAll('authorBadge'), ...rAll('uiLine'),
-      ...wAll('seeMore'), ...wAll('seeLess'), ...wAll('translate'), ...wAll('noise'), ...wAll('sponsored')].map(x => x.replace(/^\^|\$$/g, '')).join('|') + ')$', 'i');
+      ...wAll('seeMore'), ...wAll('seeLess'), ...wAll('translate'), ...wAll('noise'), ...wAll('sponsored'), ...wAll('reelNext'), ...wAll('reelPrev'), ...wAll('originalAudio')].map(x => x.replace(/^\^|\$$/g, '')).join('|') + ')$', 'i');
     const labels = uniq([...document.querySelectorAll('[role="button"], [role="menuitem"], [role="tab"]')]
       .map(b => unsalt(b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' '))
       .filter(t => t && t.length <= 40 && /\p{L}/u.test(t) && !/^\d/.test(t))).filter(t => { try { return !known.test(t); } catch (e) { return true; } });
     const noCounts = posts.filter(p => !p.counts || (p.counts.reactions == null && p.counts.comments == null)).length;
     const res = { lang: lg, posts: posts.length, dates: { parsed: dateOk, failedSamples: dateFail }, countsMissing: noCounts, unknownButtonLabels: labels.slice(0, limit * 2),
       hint: lg.supported ? 'a csomag létezik: a hiányzó szavakat bővítsd (registerLang vagy a PACKS tábla)' : 'nincs csomag: másold a hu/en bejegyzést, fordítsd le a szavakat (references/i18n.md)' };
+    const onReel = lg && pageInfo().type === 'reel';
     res.text = `langProbe · ${lg.page || '?'} (${lg.supported ? 'van csomag' : 'NINCS csomag'}) · ${posts.length} poszt · dátum ${dateOk}/${posts.length}${dateFail.length ? ' · nem értett: ' + dateFail.join(' | ') : ''} · számláló nélkül ${noCounts}` +
-      (labels.length ? `\nismeretlen gombfeliratok: ${labels.slice(0, limit * 2).join(' | ')}` : '') + `\n${res.hint}`;
+      (labels.length ? `\n${onReel ? '⚠ reel: ' : 'ismeretlen gombfeliratok: '}${labels.slice(0, limit * 2).join(' | ')}` : '') + `\n${res.hint}`;
     return res;
   }
   function selfTest({ format = 'text' } = {}) {
@@ -1617,14 +1880,30 @@
     const lg = lang();
     if (lg.code && !lg.supported) warnings.push(`FIGYELEM: a Facebook nyelve „${lg.page}” — nincs hozzá nyelvi csomag (${lg.packs.join(', ')}); a dátumok, számlálók és gombfeliratok nem biztos, hogy felismerhetők. Segítség: langProbe() és references/i18n.md`);
     else if (lg.code && !lg.verified) warnings.push(`FIGYELEM: a „${lg.code}” nyelvi csomag még nincs valódi Facebook-felületen ellenőrizve (langProbe() megmutatja, mit nem ismer fel)`);
+    let reel = null, reelLine = '';
+    if (page.type === 'reel') {
+      const ar = activeReel();
+      const bigCount = ar ? bigVideos(ar.unit).length : 0;
+      const railCaption = ar ? hasRailAndCaption(ar.unit) : false;
+      const counts = ar ? reelActionCounts(ar.unit) : {};
+      const countsOk = [counts.reactions, counts.comments, counts.shares].filter(v => v != null).length;
+      const capFound = ar ? !!reelCaptionEl(ar.unit) : false;
+      const panel = reelCommentPanel();
+      if (!ar) warnings.push('HIBA: reel oldal, de nincs aktív (nagy, látható) videó a nézetben');
+      else if (bigCount > 1) warnings.push('HIBA: a kiválasztott egységben 1-nél több nagy videó van — szomszédos (előtöltött) reel keveredhet bele');
+      else if (!railCaption) warnings.push('HIBA: a reel egységben nincs rail (like gomb) vagy felirat — hasRailAndCaption() sem a szülőkben, sem a legközelebbi elem-fallback-kel nem talált egységet');
+      if (ar && countsOk < 3) warnings.push(`FIGYELEM: ${3 - countsOk}/3 reel-számláló hiányzik vagy NaN`);
+      reel = { activeVideo: !!ar, unitOk: !!ar && bigCount <= 1, railCaption, captionFound: capFound, counts, commentPanel: panel ? 'nyitva' : 'zárva' };
+      reelLine = `\nreel: aktív videó ${ar ? '✓' : '✗'} · egység ${reel.unitOk ? '✓' : '✗'} (rail + felirat ${railCaption ? '✓' : '✗'}) · Továbbiak ${capFound ? '✓' : '?'} · számlálók ${countsOk}/3${countsOk === 3 ? ' ✓' : ''} · kommentpanel: ${reel.commentPanel}`;
+    }
     const res = {
       ok: !warnings.some(w => w.startsWith('HIBA')), clean: warnings.length === 0, version: VERSION, build: BUILD, lang: document.documentElement.lang || null, language: lg,
-      page: page.type, extension: !!window.__fbReaderExt, writeModule: window.__fbReader?.writeModule || null, anchors, extraction: ex, unstableAnchors, storagePersistent, warnings,
+      page: page.type, extension: !!window.__fbReaderExt, writeModule: window.__fbReader?.writeModule || null, anchors, extraction: ex, unstableAnchors, storagePersistent, warnings, reel,
     };
     if (format === 'object') return res;
     return `selfTest ${res.clean ? '✓' : res.ok ? '⚠' : '✗'} · fb-reader ${VERSION}+${BUILD} · ${res.lang || '?'} · ${page.type} · bővítmény: ${res.extension ? 'igen' : 'nem'} · írási modul: ${res.writeModule ? 'van' : 'nincs'}\n` +
       `horgonyok: ${Object.entries(anchors).map(([k, v]) => `${k} ${v}`).join(', ')}\n` +
-      `kinyerés: ${n}/${ex.roots} poszt — szerző ${ex.author}, szöveg ${ex.text}, dátum ${ex.date}, link ${ex.url}, számláló ${ex.counts}, kép ${ex.images}` +
+      `kinyerés: ${n}/${ex.roots} poszt — szerző ${ex.author}, szöveg ${ex.text}, dátum ${ex.date}, link ${ex.url}, számláló ${ex.counts}, kép ${ex.images}` + reelLine +
       (warnings.length ? '\n' + warnings.join('\n') : '');
   }
 
@@ -1643,9 +1922,7 @@
       return (/facebook\.com$/i.test(u.hostname) ? 'https://www.facebook.com' : 'https://example.com') + path + (q ? '?' + q : '');
     } catch (e) { return '#'; }
   };
-  function snapshot({ post, maxChars = 120000 } = {}) {
-    const root = resolvePost(post);
-    if (!root) return '';
+  function anonymizeClone(root) {
     const orig = [root, ...root.querySelectorAll('*')];
     const clone = root.cloneNode(true);
     const copy = [clone, ...clone.querySelectorAll('*')];
@@ -1669,8 +1946,21 @@
     const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
     const tn = []; while (walker.nextNode()) tn.push(walker.currentNode);
     for (const t of tn) t.nodeValue = anonText(t.nodeValue);
+    return clone;
+  }
+  function snapshot({ post, maxChars = 120000 } = {}) {
+    const root = resolvePost(post);
+    if (!root) return '';
+    const clone = anonymizeClone(root);
     const inner = clone.outerHTML;
-    const wrap = clone.matches?.(SEL.dialog) ? inner : `<div role="main"><div role="feed">${inner}</div></div>`;
+    // a reel's comments live in a side panel outside the unit: keep that too (preloaded neighbour reels,
+    // which are not part of root, are dropped for free — this never touches them)
+    let extra = '';
+    if (root === REEL_UNIT) {
+      const panel = reelCommentPanel();
+      if (panel) extra = anonymizeClone(panel).outerHTML;
+    }
+    const wrap = clone.matches?.(SEL.dialog) ? inner : `<div role="main"><div role="feed">${inner}</div>${extra}</div>`;
     const html = `<!doctype html><meta charset="utf-8"><title>fb-reader snapshot</title><!-- fb-reader ${VERSION}+${BUILD} snapshot of ${location.pathname.replace(/\d{6,}/g, '1')} (anonymised) -->\n${wrap}`;
     return html.length > maxChars ? html.slice(0, maxChars) + `\n<!-- csonkolva: ${html.length} karakterből ${maxChars} -->` : html;
   }
@@ -2391,6 +2681,17 @@
     thread: (id, { e2ee = false, host = 'facebook' } = {}) => host === 'messenger' ? `https://www.messenger.com/${e2ee ? 'e2ee/' : ''}t/${id}/` : `${FB}/messages/${e2ee ? 'e2ee/' : ''}t/${id}/`,
     reel: id => `${FB}/reel/${id}`,
     video: id => `${FB}/watch/?v=${id}`,
+    // read-only: tags the control for find()/screenshot, never clicks it (no auto-advancing through reels)
+    reelNext: () => { const b = reelNextButton(); if (!b) return 'nav.reelNext · nincs „Következő videó" gomb a nézetben'; const t = tagFbr(b, 'reel-next'); return `${t.ref} megjelölve (${t.x},${t.y}) · find("reel-next") vagy kattintás a koordinátán`; },
+    reelPrev: () => { const b = reelPrevButton(); if (!b) return 'nav.reelPrev · nincs „Előző videó" gomb a nézetben'; const t = tagFbr(b, 'reel-prev'); return `${t.ref} megjelölve (${t.x},${t.y}) · find("reel-prev") vagy kattintás a koordinátán`; },
+    reelComments: () => {
+      const ar = activeReel();
+      if (!ar) return 'nav.reelComments · nincs aktív reel a nézetben';
+      const b = [...ar.unit.querySelectorAll('[role="button"], div[aria-label]')].find(x => COMMENT_BTN_RE.test(unsalt(x.getAttribute('aria-label') || x.innerText || '').trim()));
+      if (!b) return 'nav.reelComments · nincs komment-gomb a rail-ben';
+      const t = tagFbr(b, 'reel-comments');
+      return `${t.ref} megjelölve (${t.x},${t.y}) — ezé a reelé, nem egy szomszédé · find("reel-comments") vagy kattintás a koordinátán, majd await expandComments()`;
+    },
   };
 
   // ── Search result pages (people, groups, pages, events, places…) ─────────
@@ -2641,7 +2942,7 @@
     version: VERSION,
     build: BUILD,
     lang, registerLang, langProbe, extract, expandSeeMore, expandComments, hoverDates, hoverReveal: hoverDates, harvest, selfTest, snapshot, q,
-    map, peek, thread, full, grep, go, where, forgetSeen, setCommentSort,
+    map, peek, thread, full, grep, go, where, forgetSeen, setCommentSort, reel, activeReel,
     inbox, watchPeek, notifs, notif, msgs, msgOpen, msgThread, me, selfThread, market, marketScroll, ready, listing, trackAdd, trackList, trackRemove, trackCheck, myListings, priceCheck,
     nav, extractSearchResults, listGroups, groupInfo, extractMediaGrid, mediaList, download, downloadImages, photoSet, kindOfUrl, fbIdOf, cdnSafe,
     findPost, resolvePost, mark, unmark, extractPinnedComments, extractPrompt, promptsToMarkdown,

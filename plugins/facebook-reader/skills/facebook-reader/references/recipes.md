@@ -70,6 +70,7 @@ Public reels/videos work without cookies. For private-group videos use `--cookie
 | my groups / groups feed | `/groups/joins/` · `/groups/feed/` |
 | profile tabs | `/{user}/photos` `/{user}/videos` `/{user}/reels` (numeric: `profile.php?id=…&sk=photos`) |
 | page/profile from a search result | `nav.page(result)` / `nav.page(id)` / `nav.page(slug)` |
+| one reel | `/reel/{id}` (also `nav.reel(id)`); `fb.watch/…` and `share/r/…` short links work as-is |
 
 ## Notifications and messages (on request)
 
@@ -85,6 +86,13 @@ Public reels/videos work without cookies. For private-group videos use `--cookie
 - "Mi ez a hirdetés?": `listing('$ref')` → `navigate` → `ready()` → `listing()`.
 - "Hasonlítsd össze a három legolcsóbbat": `market({by:'price', limit:3})` → open each → one line per listing (price, condition, place, age, seller).
 - "Írj az eladónak" / "Értesíts, ha új jön": §5 protocol (`marketControl('message' | 'alert')`), approval first.
+
+## Reel (on request)
+
+- *"Mi van ezen a reelen?"* → `navigate` to `/reel/{id}` → `await __fbReader.ready()` → `await peek()` (no ref needed — the active reel is the only post root); need the full caption/chapters? → `await full()` or `await reel()`.
+- *"Mit mondanak a kommentjei?"* → `nav.reelComments()` → `find "[fbr:reel-comments]"` → click (opens the panel; read only) → `await expandComments()` (repeat while `done:false`) → `thread({top:8})`. A `🎣 kulcsszó-kampány` line means a keyword-bait funnel; `thread({only:'other'})` for just the genuine replies.
+- *"Mit mond a videóban?"* (spoken/on-screen text, not the caption) → `fb_tool.py transcribe --url <reel url> -o out --subs --speech` (and `--ocr 5` for burned-in text); see `references/media.md` → "Text in a video".
+- *"Van más poszt is mögötte?"* → `map({background:true})` reveals the hidden feed item behind the reel viewer (normally hidden to keep `map()` focused on the reel itself).
 
 ## Selling and tracking (on request)
 

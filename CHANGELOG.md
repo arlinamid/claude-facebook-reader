@@ -5,6 +5,26 @@ az `[Unreleased]` blokk tartalma kerül az új verzió alá.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-26
+
+### Javítva (élő teszt egy valódi reel-oldalon és a felhasználó saját Facebook-fotóin, Claude in Chrome-mal)
+- **`activeReel()` egységfelismerés szomszédos reelbe folyt bele:** a rail-felismerés (`hasRailAndCaption`) a "Tetszik" gomb pontos egyezését várta, de ha a néző már reagált a videóra, a gomb `aria-label`-je „Tetszik eltávolítása", nem puszta „Tetszik" — ez sosem illett, ezért a klímázás sosem talált egységet az egyetlen-videós szinteken, és a távolság-alapú tartalék egy tágabb, két videót (a jelenlegi + egy előtöltött szomszéd reel) tartalmazó ősre esett vissza. A `LIKE_WORD_RE` / `SHARE_BTN_RE` mostantól előtag-egyezést fogad el (nem csak pontos egyezést), így a „Tetszik eltávolítása" / „Megosztás, N megosztás" alakok is illenek.
+- **Reel-számlálók (👍💬↗) hiányoztak:** a `reelActionCounts()` csak a gomb melletti testvér-elemekben kereste a számot, de a valódi DOM-ban a szám a gomb *saját* alfájában van (pl. a „Tetszik eltávolítása" gomb maga tartalmazza a „663" feliratot). Most előbb a gomb saját alfáját nézi.
+- **🎣 kulcsszó-horgász-felismerés sosem jelzett reel-oldalon:** a `detectBait()` a `pinned` jelzőre épített, de a reel kommentpanelje a szerző saját, felső kommentjét sosem jelöli „rögzítve"-ként (a `aria-label` csak „<Név> hozzászólása (…)", szemben a sima posztokkal/csoportokkal, ahol Facebook explicit „Felül rögzített hozzászólás" jelzést ad) — így a kérdéses komment sosem volt megtalálható, és a felismerés élő reel-en sosem futott le, még a tankönyvi „írd be: Course" mintán sem. Tartalék: ha semmi sincs valódi `pinned`-ként jelölve, a szerző első top-level kommentje számít rögzítettnek.
+- A `photoSet()` / `nav.photoPost()` élő tesztje (a felhasználó saját fotóalbumán) hibát nem talált — a fotó/photoset-olvasás már eddig is helyesen működött.
+
+## [0.14.0] - 2026-10-26
+
+### Hozzáadva (reel-támogatás — fixture-teszteken ellenőrizve, **élő reel-oldalon még nem**)
+- **`activeReel()` / reel-oldal olvasása:** `/reel/<id>` oldalon a `pageInfo().type` mostantól `'reel'` (nem `'video'`); `activeReel()` a több előtöltött szomszédos reel közül a lejátszást / képernyő-középpontot figyelembe véve választja ki az aktívat, sosem egy előtöltött szomszédot. `findPostRoots()`, `extractPost()`, `map()`, `peek()`, `thread()`, `full()`, `where()`, `go()` ezen keresztül mind működik reel-oldalon is, külön kezelés nélkül; az új poszt-mező `kind:'reel'`, és megjelenik a `chapters` (felirat-fejezetek), `hashtags`, `audio` ("Eredeti hang"), `duration` mező is.
+- **`reel({budgetMs})`:** mint `extractPost()` az aktív reelen, de előbb kinyitja a "Továbbiak"-ot a feliratban.
+- **Reel-kommentpanel:** a komment-oldalpanel (`[role="complementary"]`) felismerése és lapozása (`expandComments()` gombos lapozás-ágra vált reel-oldalon, max. 4 kattintás/hívás, 1,5–2,5 s szünetekkel, `done:false` ha elfogy a kattintás-költségvetés); `thread()` reel-fejléce jelzi a panel és a sáv komment-számának eltérését.
+- **Kulcsszó-horgász-felismerés (🎣):** ha a kitűzött komment „írd be X és…” mintára illik és a válaszok ≥60%-a ugyanazt az egy szót ismétli, a `thread()` egy `🎣 kulcsszó-kampány: …` összefoglaló sorba fogja össze őket (a kitűzött kérés és a szerző tipikus válasza látható, az ismétlődő válaszok nem sorolódnak fel egyenként) és kiemeli az ettől eltérő, valódi hozzászólásokat; `thread({bait:false})` a teljes, szűrés nélküli listát adja, `thread({only:'other'})` csak a nem-kulcsszavas hozzászólásokat.
+- **`nav.reelNext` / `nav.reelPrev` / `nav.reelComments`:** a következő/előző videó nyilát és a komment-gombot csak megjelölik (`[fbr:…]`), sosem kattintanak rá.
+- **`map({background:true})`:** a reel-nézegető mögött betöltve maradt hírfolyam-posztot is listázza (külön jelölve), alapból rejtve marad.
+- Új i18n kulcsok (hu+en): `reelNext`, `reelPrev`, `originalAudio`, `baitAsk`, `viewReplies`; `langProbe()` reel-oldalon a hiányzó kulcsot `⚠ reel: …` előtaggal jelzi. `selfTest()` reel-diagnosztika (aktív videó/egység/rail+felirat/számlálók).
+- **`fb_tool.py transcribe`:** a videóban lévő szöveg kinyerése — `--subs` (Facebook saját feliratai, yt-dlp), `--speech` (beszédfelismerés `.srt`+`.txt`, faster-whisper), `--ocr N` (N másodpercenkénti képkocka + OCR, ffmpeg+tesseract, `ocr.md`); `media --url … --transcribe` egy lépésben letölt és átír. Tesseract/faster-whisper hiányában hibát ír ki és nem áll meg csendben (mint `ensure_playable()`).
+
 ## [0.13.3] - 2026-10-25
 
 ### Hozzáadva (élő használati visszajelzés alapján: képletöltés, fénykép-nézegető — **még nem élőben tesztelve**, első valódi használatkor ellenőrizendő)

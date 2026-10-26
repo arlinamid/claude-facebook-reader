@@ -69,6 +69,27 @@ Microsoft Store "AV1 Video Extension", so the download looks broken.
 Without ffmpeg it prints a warning. Fixing an existing file by hand:
 `ffmpeg -i in.mp4 -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart out.mp4`
 
+## Text in a video
+
+A reel/video can carry text in up to four places; pick the cheapest one that answers the question:
+
+| Where | How |
+|---|---|
+| the caption (what the poster typed) | `await __fbReader.reel()` (or `peek()`/`full()` on a reel page) → `.text`/`.chapters`/`.hashtags`/`.audio` — already in the DOM, no download |
+| Facebook's own captions (if the uploader added any) | `fb_tool.py transcribe --url <reel url> -o out --subs` (yt-dlp `--write-subs --write-auto-subs`) |
+| spoken words | `fb_tool.py transcribe <file.mp4|--url URL> -o out --speech` → `transcript.srt` + `transcript.txt` (faster-whisper, CPU, model `small` by default) |
+| on-screen text (slides, overlays, burned-in subtitles) | `fb_tool.py transcribe <file.mp4|--url URL> -o out --ocr 5` → `ocr.md` with timestamps (ffmpeg frame-grab every N seconds + tesseract `eng+hun`, near-identical consecutive frames dropped) |
+
+`media --url … --transcribe --speech|--ocr N|--subs` downloads and transcribes in one step.
+`--speech` needs `pip install faster-whisper`; `--ocr` needs `ffmpeg` and `tesseract` (with `eng`+`hun`
+language data) on `PATH` — missing tools are reported per step in `manifest.json`, not skipped silently.
+`--summary` is a reminder, not a feature: build the chapter-style notes from `transcript.txt` yourself
+(aligned to `reel().chapters` if the caption has them), same as the output-size rule below.
+
+**Output-size rule:** read `transcript.txt`/`ocr.md` in chunks and summarise; do not paste a whole
+transcript into the chat. Long verbatim reposting of someone else's video text is the user's call — ask
+before quoting more than a sentence or two.
+
 ## yt-dlp tips
 
 - Install: `pip install -U yt-dlp` (keep it current; FB extractor breaks often).

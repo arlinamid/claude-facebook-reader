@@ -682,6 +682,40 @@ with sync_playwright() as p:
     check('priceCheck: quartiles and own position', all(x in pc for x in ('medián', 'Q1', 'saját ár 40 000')) and 'olcsóbb' in pc, pc)
     ev("localStorage.removeItem('fb-reader:track')")
 
+    # ── 3j. reel page: active-unit picking, caption/counters, comment panel, keyword-bait ──
+    print('reel')
+    state['p'] = 'reel'
+    pg.goto('https://www.facebook.com/reel/1000000000000042'); pg.wait_for_timeout(300)
+    check('pageInfo: reel type (not video)', ev("__fbReader.pageInfo().type") == 'reel')
+    ar = ev("(() => { const a = __fbReader.activeReel(); return a && {id: a.id, videoId: a.video.id}; })()")
+    check('activeReel: picks the visible unit, never an off-screen preloaded neighbour', ar and ar['videoId'] == 'v2' and ar['id'] == '1000000000000042', ar)
+    check('findPostRoots: only the active unit, the background feed item is hidden', ev('__fbReader.findPostRoots().length') == 1)
+    rp = ev("__fbReader.extractPost(__fbReader.findPostRoots()[0])")
+    check('reel post: kind, author, rail counters (next-sibling bare numbers)', rp['kind'] == 'reel' and rp['author'] == 'Teszt Alkotó' and rp['counts'] == {'reactions': 359, 'comments': 51, 'shares': 57}, json.dumps(rp)[:400])
+    check('reel post: hashtags + chapters parsed out of the caption', '#teszt' in rp['hashtags'] and any(c['t'] == '5:29' and c['title'] == 'Refrén' for c in rp['chapters']), json.dumps([rp['hashtags'], rp['chapters']]))
+    check('reel post: "Eredeti hang" picked up as the audio line, caption marked truncated', rp['audio'] and 'Eredeti' in rp['audio'] and rp['textTruncated'] is True, rp.get('audio'))
+    wh = ev('__fbReader.where()')
+    check('where(): reel line (id, play state, panel progress)', wh.startswith('reel 1000000000000042') and 'szünet' in wh and 'kommentpanel: nyitva (2/5)' in wh, wh)
+    mp = ev('__fbReader.map()')
+    check('map(): background feed hidden by default', 'Háttér' not in mp, mp)
+    mpb = ev('__fbReader.map({background:true})')
+    check('map({background:true}): background feed shown, tagged', 'Háttér' in mpb and 'háttér' in mpb, mpb)
+    nn = ev('__fbReader.nav.reelNext()')
+    check('nav.reelNext: no arrow in this fixture → reported, not invented', 'nincs' in nn, nn)
+    nc = ev('__fbReader.nav.reelComments()')
+    check('nav.reelComments: tags THIS reel\'s comment button (never a neighbour\'s)', '[fbr:reel-comments]' in nc and ev("document.getElementById('commentBtn2').getAttribute('data-fbr-target')") == '1', nc)
+    th = ev('__fbReader.thread().then(r=>r)')
+    check('thread(): keyword-bait summary line hides the spam, surfaces the real question, keeps the pinned ask visible',
+          '🎣' in th and 'CQRS' in th and 'Második Néző' not in th and 'c1' in th, th)
+    ref = re.search(r'#(\w+)', th).group(0)
+    th0 = ev(f"__fbReader.thread('{ref}',{{bait:false}}).then(r=>r)")
+    check('thread(ref,{bait:false}): bait summary off, full listing (incl. the keyword spam) restored', '🎣' not in th0 and 'Második Néző' in th0, th0)
+    ec = ev('__fbReader.expandComments().then(r=>r)')
+    check('expandComments() on a reel: panel button paging, bounded clicks', 1 <= ec['clicked'] <= 4 and ec.get('done') is not None, json.dumps(ec))
+    th2 = ev('__fbReader.thread().then(r=>r)')
+    check('thread() after paging: bait line still shown, the newly-loaded keyword reply is folded too',
+          '🎣' in th2 and 'CQRS' in th2 and 'Második Néző' not in th2 and 'Negyedik Néző' not in th2, th2)
+
     ctx.close()
     # ── 3j. extension tracking helper: bridge → service worker mirror, one check pass, popup ──
     print('extension: tracking helper')

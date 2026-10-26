@@ -1,6 +1,6 @@
 {
   "name": "facebook-reader",
-  "version": "0.13.3",
+  "version": "0.14.1",
   "description": "De-obfuscating Facebook reader for Claude: posts, comments and their media, groups, search, navigation and media download via the user's own browser session.",
   "author": { "name": "arlinamid", "url": "https://github.com/arlinamid" },
   "homepage": "https://github.com/arlinamid/claude-facebook-reader",

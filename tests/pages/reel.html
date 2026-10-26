@@ -1,0 +1,73 @@
+<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>Reel | Facebook</title></head><body>
+<div role="main">
+  <div aria-posinset="1" style="position:absolute;top:-9999px;left:0">
+    <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/950/">Háttér Hírfolyam</a></div>
+    <div data-ad-rendering-role="story_message"><div dir="auto">Ez egy a reel-nézegető mögött betöltve maradt hírfolyam-poszt, nem a reel tartalma.</div></div>
+  </div>
+  <div id="unit1" style="position:absolute;top:-9999px;left:0;width:300px">
+    <video id="v1" style="width:300px;height:500px"></video>
+    <div role="button" aria-label="Tetszik">👍</div><span>4</span>
+    <div role="button" aria-label="Hozzászólás">💬</div><span>1</span>
+    <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/901/">Szomszéd Egy</a></div>
+    <div dir="auto">Ez egy szomszédos (előtöltött) reel felirata, nem ez az aktív.</div>
+  </div>
+  <div id="unit2" style="position:fixed;top:50px;left:0;width:300px;height:700px">
+    <video id="v2" style="width:300px;height:500px"></video>
+    <div role="button" aria-label="Tetszik">👍</div><span>359</span>
+    <div role="button" aria-label="Hozzászólás" id="commentBtn2">💬</div><span>51</span>
+    <div role="button" aria-label="Megosztás">↗</div><span>57</span>
+    <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/902/">Teszt Alkotó</a></div>
+    <div dir="auto" id="caption2">0:00 Intro<br>5:29 Refrén<br>Eredeti hang<br>Ez a reel felirata, elég hosszú ahhoz hogy a rail+felirat detektálja. #teszt #reel <span role="button" tabindex="0" id="seeMore2">Továbbiak</span></div>
+  </div>
+  <div id="unit3" style="position:absolute;top:-9999px;left:0;width:300px">
+    <video id="v3" style="width:300px;height:500px"></video>
+    <div role="button" aria-label="Tetszik">👍</div><span>7</span>
+    <div role="button" aria-label="Hozzászólás">💬</div><span>2</span>
+    <div data-ad-rendering-role="profile_name"><a href="/groups/1/user/903/">Szomszéd Három</a></div>
+    <div dir="auto">Egy másik szomszédos reel felirata, ez sem az aktív.</div>
+  </div>
+</div>
+<div role="complementary" id="panel">
+  <div role="button" id="moreComments" tabindex="0">További hozzászólások 2 / 5</div>
+  <div role="article" aria-label="Teszt Alkotó hozzászólása (2 órája)" id="pinnedArt">
+    <a href="/groups/1/user/902/">Teszt Alkotó</a>
+    <span>Kitűzve</span>
+    <div dir="auto">Szerző</div>
+    <div dir="auto">írd be Course és privátban elküldöm a linket!</div>
+  </div>
+  <div role="article" aria-label="Első Néző hozzászólása (1 órája)">
+    <a href="/groups/1/user/911/">Első Néző</a>
+    <div dir="auto">Course</div>
+    <div role="article" aria-label="Teszt Alkotó válasza Első Néző hozzászólására (55 perce)">
+      <a href="/groups/1/user/902/">Teszt Alkotó</a>
+      <div dir="auto">Check your DM!</div>
+    </div>
+  </div>
+  <div role="article" aria-label="Második Néző hozzászólása (1 órája)">
+    <a href="/groups/1/user/912/">Második Néző</a>
+    <div dir="auto">Course kérem</div>
+  </div>
+  <div role="article" aria-label="Harmadik Néző hozzászólása (50 perce)">
+    <a href="/groups/1/user/913/">Harmadik Néző</a>
+    <div dir="auto">kérdés a CQRS részről, hogy tudom alkalmazni sima REST API-n?</div>
+  </div>
+</div>
+<script>
+document.getElementById('moreComments').addEventListener('click', () => {
+  const panel = document.getElementById('panel');
+  const btn = document.getElementById('moreComments');
+  const m = /(\d+)\s*\/\s*(\d+)/.exec(btn.textContent);
+  const loaded = Math.min(+m[2], +m[1] + 1);
+  if (loaded >= +m[2]) {
+    const art = document.createElement('div');
+    art.setAttribute('role', 'article');
+    art.setAttribute('aria-label', 'Negyedik Néző hozzászólása (10 perce)');
+    art.innerHTML = '<a href="/groups/1/user/914/">Negyedik Néző</a><div dir="auto">Course</div>';
+    panel.insertBefore(art, btn);
+    btn.remove();
+  } else {
+    btn.textContent = 'További hozzászólások ' + loaded + ' / ' + m[2];
+  }
+});
+</script>
+</body></html>

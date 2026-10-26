@@ -10,7 +10,7 @@ description: >
   reel", "gyűjtsd ki a promptokat az oldalról", "reagálj / kommentelj erre a posztra", "jött értesítés a posztomra?", "van új üzenetem?", "keress az üzeneteimben", "keress a Marketplace-en", "mennyibe kerül használtan", "hasonlítsd össze a hirdetéseket", "add el a Marketplace-en", "hirdesd meg a csoportban", "mi újság a hirdetéseimmel?", "kövesd a hirdetésemet", or pastes a
   saved Facebook HTML / posts.json export.
 metadata:
-  version: "0.13.3"
+  version: "0.14.1"
   author: "arlinamid"
 ---
 
@@ -29,7 +29,7 @@ walls, noise or wrong dates, and the raw page costs ~10 000 tokens per 40 posts.
 | `scripts/fb-reader.loader.js` | ~1.6 KB loader: run with **`await`** after **every** page load (when no extension) |
 | `scripts/fb-reader.min.js` · `install/part-N-of-M.js` | core (~65 KB) in one call, or in ~12 KB parts (run all, in order) |
 | `scripts/fb-reader-write.min.js` | optional write-protocol module: `composeReport`, `commentBox`, `replyBox`, `react`, `reactionState` |
-| `scripts/fb_tool.py` · `fb-capture.mjs` | offline: media download (yt-dlp), JSON→MD, saved-HTML parser · CLI route with a Playwright profile |
+| `scripts/fb_tool.py` · `fb-capture.mjs` | offline: media download (yt-dlp), text-in-video (`transcribe`: captions/speech/OCR), JSON→MD, saved-HTML parser · CLI route with a Playwright profile |
 | `references/api.md` | every `__fbReader` function, option and the output schema |
 | `references/recipes.md` | full-extraction recipes (harvest, search, groups, media) + URL cheat-sheet |
 | `references/troubleshooting.md` | symptom → fix table |
@@ -81,6 +81,7 @@ question needs. Every output fits one tool call (≤ 900 chars), carries `~Ntok`
 | **L2** | `await thread('#a3f9', {top:8, only:'author'\|'media'\|'links'\|'replies', match:'szó'})` | comment outline `c1 📌✍ ↳Név←: 100 chars`, a note when the comments are not all loaded (`expandComments()`) |
 | **L3** | `await full('#a3f9')` · `await full('#a3f9','c3')` | complete text of exactly one post / comment, paged with `{offset}` |
 | move | `await go('#a3f9')` | scrolls the post into view (scrolls a post the virtualized feed dropped back by itself), reveals and reports the real permalink; `nav.*` for pages |
+| reel page | `peek()` / `full()` / `thread()` with no ref (the active reel is the only post root) | same levels as above, plus `chapters`, `hashtags`, `audio`; open the comments with `nav.reelComments()` → `find` → click, then `await expandComments()` |
 
 Anchors are content hashes (author + first 60 characters): they survive scrolling, re-rendering and `hoverDates()` (which restores the scroll position and records every post it passes),
 and any function that takes `post` also accepts one (`react('love',{post:'#a3f9'})`, `extractPinnedComments`).
@@ -91,6 +92,7 @@ Typical flows (each step only if the previous one was not enough):
 - *"Mit mondanak a kommentek?"* → `peek` → `await expandComments({post:'#a3f9'})` (switches the sort to "all") → `thread({top:8})` → `thread({match:'…'})` → `full(…,'c3')`.
 - *"Keresd meg, ki írt X-ről"* → `grep('X',{where:'all'})` → `peek('#…/…')`.
 - *"Melyik poszt volt okt. 19-én?"* → `map({date:'10-19'})` (Facebook rounds relative times down: "~4n" = 4–5 days, so a window is matched) → `await hoverDates({post:'#…'})` only on the candidates for the exact date.
+- *"Mit mondanak a reel kommentjei?"* → `nav.reelComments()` → `find` → click (opens the panel, read only) → `await expandComments()` → `thread({top:8})`. A `🎣` line means a keyword campaign (§4).
 - Need everything (export, report): `references/recipes.md` (`harvest.dump`, `render()` + `get_page_text`, `chunk()`), and `q('posts'|'comments'|…, fields)` for custom one-line tables.
 
 ## 3b. Notifications and messages (read only, on request)
@@ -161,6 +163,7 @@ Only on request. **Publishing a listing is a write: §5 protocol with `--kind li
 - `📌` = pinned comment, `✍` / `(szerző)` = the post author's comment; on creator pages these often hold the actual
   content (prompt, recipe, link).
 - Never present decoy strings (`AbCd12.com`, char-per-line junk) as content: they mean the page was read without CSS.
+- `🎣 kulcsszó-kampány: „szó" N/M` on a reel's `thread()` = a keyword-bait funnel: the pinned comment asks for a word in exchange for a DM link, and ≥60% of the top-level replies just repeat it. Those repeats are folded into the summary line (not listed one by one) so the real questions stay visible; `thread({bait:false})` lists everything, `thread({only:'other'})` only the non-spam replies. The rail's comment count (e.g. 51) and the panel's loaded count (e.g. "32 betöltve") can differ — the rail counts replies too and sometimes removed ones; `expandComments()` only loads more, it cannot force the two numbers to match.
 
 Summaries: user's language, quote sparingly, attribute, link the post. No personal profiles of private individuals
 from comments or member lists.
