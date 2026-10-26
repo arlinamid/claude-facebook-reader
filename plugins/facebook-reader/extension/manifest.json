@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "facebook-reader (Claude)",
-  "version": "0.13.3",
+  "version": "0.14.0",
   "description": "Betölti a facebook-reader szkriptet (window.__fbReader) a facebook.com és messenger.com oldalakra, és segíti a hirdetések követését, valamint az értesítések és Messenger-üzenetek jelzését (opcionális, alapból kikapcsolt háttérfigyelés, csak olvasás, csak számlálók). Írási műveletet nem végez.",
   "content_scripts": [
     {

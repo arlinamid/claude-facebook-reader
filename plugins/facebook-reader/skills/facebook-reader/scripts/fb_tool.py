@@ -9,6 +9,7 @@ Subcommands
              timestamps that are obfuscated only in CSS stay unknown; aria-labelledby works).
   clean-url  Unwrap l.facebook.com shims and strip tracking params.
   urls       Print Facebook navigation / search URLs (same builders as __fbReader.nav).
+  transcribe Text inside a video: Facebook's own captions, speech-to-text, on-screen text (OCR).
 
 Examples
   python3 fb_tool.py media dump.json -o fb_media --cookies-from-browser chrome
@@ -16,9 +17,11 @@ Examples
   python3 fb_tool.py to-md dump.json > posts.md
   python3 fb_tool.py parse-html saved_page.html --format md
   python3 fb_tool.py urls search "suno ai" --type groups
+  python3 fb_tool.py transcribe --url https://www.facebook.com/reel/1234567890 -o out --subs --speech
 
 Dependencies: Python 3.9+. media → `pip install yt-dlp` (videos) ; images use urllib only.
-parse-html → `pip install beautifulsoup4`.
+parse-html → `pip install beautifulsoup4`. transcribe --speech → `pip install faster-whisper`;
+--ocr → ffmpeg + tesseract (eng+hun language data) on PATH, optionally Pillow for frame de-duplication.
 """
 from __future__ import annotations
 
@@ -255,6 +258,8 @@ def cmd_media(args):
                 continue
             entry.update(status="ok", file=str(f) if f else None)
             print(f"✓ {r['type']:6} {f}")
+            if args.transcribe and f and r["type"] in ("video", "reel"):
+                entry["transcribe"] = run_transcribe(f, r["url"], out_dir / re.sub(r"[^\w.-]+", "_", r["name"] + "_transcribe"), args)
         except Exception as e:  # noqa: BLE001
             entry.update(status="error", error=str(e)[:300])
             print(f"✗ {r['type']:6} {r['url'][:80]} — {e}", file=sys.stderr)
@@ -263,6 +268,127 @@ def cmd_media(args):
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     ok = sum(1 for m in manifest if m.get("status") == "ok")
     print(f"\n{ok}/{len(manifest)} letöltve → {out_dir}/ (manifest.json)")
+
+
+# ── Text inside the video: subs / speech / OCR ────────────────────────────────
+def transcribe_subs(url, out_dir: Path, args) -> dict:
+    if not re.match(r"^https?://", str(url) or ""):
+        return {"status": "skipped", "error": "nincs URL (csak helyi fájl lett megadva) — a Facebook-feliratokhoz az eredeti URL kell"}
+    base = ytdlp_cmd()
+    if not base:
+        return {"status": "error", "error": "yt-dlp nincs telepítve: pip install -U yt-dlp"}
+    dest = out_dir / "subs"
+    langs = args.lang if args.lang and args.lang != "auto" else "hu,en,hu.*,en.*"
+    cmd = base + ["--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", langs,
+                  "-o", str(dest) + ".%(ext)s", url]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    files = sorted(str(p) for p in out_dir.glob("subs*.vtt")) + sorted(str(p) for p in out_dir.glob("subs*.srt"))
+    if files:
+        return {"status": "ok", "files": files}
+    err = (res.stderr or res.stdout).strip().splitlines()
+    return {"status": "none", "error": err[-1] if err else "nincs elérhető feliratfájl ehhez a videóhoz"}
+
+
+def transcribe_speech(video: Path, out_dir: Path, args) -> dict:
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return {"status": "error", "error": "faster-whisper nincs telepítve: pip install faster-whisper"}
+    model = WhisperModel(args.model, device="cpu", compute_type="int8")
+    lang = None if not args.lang or args.lang == "auto" else args.lang
+    segments, info = model.transcribe(str(video), language=lang)
+
+    def fmt(t: float) -> str:
+        h, rem = divmod(t, 3600); mi, s = divmod(rem, 60)
+        return f"{int(h):02}:{int(mi):02}:{int(s):02},{int((s - int(s)) * 1000):03}"
+    srt_lines, txt_lines = [], []
+    for i, seg in enumerate(segments, 1):
+        text = seg.text.strip()
+        srt_lines += [str(i), f"{fmt(seg.start)} --> {fmt(seg.end)}", text, ""]
+        txt_lines.append(text)
+    if not txt_lines:
+        return {"status": "none", "error": "nincs felismert beszéd"}
+    srt_path, txt_path = out_dir / "transcript.srt", out_dir / "transcript.txt"
+    srt_path.write_text("\n".join(srt_lines), encoding="utf-8")
+    txt_path.write_text(" ".join(txt_lines).strip() + "\n", encoding="utf-8")
+    return {"status": "ok", "srt": str(srt_path), "txt": str(txt_path), "language": getattr(info, "language", lang)}
+
+
+def _frame_hash(path: Path):
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    small = Image.open(path).convert("L").resize((8, 8))
+    px = list(small.getdata())
+    avg = sum(px) / len(px)
+    return int("".join("1" if p > avg else "0" for p in px), 2)
+
+
+def transcribe_ocr(video: Path, out_dir: Path, args) -> dict:
+    if not shutil.which("ffmpeg"):
+        return {"status": "error", "error": "ffmpeg nincs telepítve"}
+    if not shutil.which("tesseract"):
+        return {"status": "error", "error": "tesseract nincs telepítve (eng+hun nyelvi adatokkal) — https://github.com/tesseract-ocr/tesseract"}
+    frame_dir = out_dir / "ocr_frames"
+    frame_dir.mkdir(exist_ok=True)
+    for old in frame_dir.glob("f_*.png"):
+        old.unlink()
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vf", f"fps=1/{args.ocr}", str(frame_dir / "f_%05d.png")]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    frames = sorted(frame_dir.glob("f_*.png"))
+    if res.returncode != 0 or not frames:
+        return {"status": "error", "error": (res.stderr or "nincs kinyert képkocka").strip()[-300:]}
+    rows, last_hash = [], None
+    have_phash = _frame_hash(frames[0]) is not None
+    for i, f in enumerate(frames):
+        t = i * args.ocr
+        if have_phash:
+            h = _frame_hash(f)
+            if last_hash is not None and bin(h ^ last_hash).count("1") <= 4:
+                continue
+            last_hash = h
+        text = subprocess.run(["tesseract", str(f), "stdout", "-l", "eng+hun"], capture_output=True, text=True).stdout.strip()
+        if text:
+            rows.append((t, text))
+    md = ["# Képernyőszöveg (OCR)", ""] + [f"**{int(t // 60):02}:{int(t % 60):02}** — {txt}" for t, txt in rows]
+    ocr_path = out_dir / "ocr.md"
+    ocr_path.write_text("\n\n".join(md) + "\n", encoding="utf-8")
+    note = "" if have_phash else " (Pillow nélkül: minden képkocka, duplikátum-szűrés nélkül)"
+    return {"status": "ok", "file": str(ocr_path), "frames": len(frames), "kept": len(rows), "note": note or None}
+
+
+def run_transcribe(video: Path, url: str | None, out_dir: Path, args) -> dict:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {"video": str(video) if video else None, "url": url}
+    if args.subs:
+        manifest["subs"] = transcribe_subs(url, out_dir, args)
+    if args.speech:
+        manifest["transcript"] = transcribe_speech(video, out_dir, args) if video else {"status": "error", "error": "nincs letöltött videófájl"}
+    if args.ocr:
+        manifest["ocr"] = transcribe_ocr(video, out_dir, args) if video else {"status": "error", "error": "nincs letöltött videófájl"}
+    return manifest
+
+
+def cmd_transcribe(args):
+    if not (args.subs or args.speech or args.ocr):
+        args.subs = True  # "--subs (default first)" per references/media.md
+    out_dir = Path(args.out)
+    video = None
+    if args.url:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        video = fetch_video(args.url, out_dir / "video", args)
+        if not video:
+            raise SystemExit("A videó letöltése sikertelen, nincs mit átírni.")
+    elif args.file:
+        video = Path(args.file)
+        if not video.exists():
+            raise SystemExit(f"Nincs ilyen fájl: {video}")
+    else:
+        raise SystemExit("transcribe: adj meg egy fájlt vagy --url-t")
+    manifest = run_transcribe(video, args.url, out_dir, args)
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 
 # ── Markdown ─────────────────────────────────────────────────────────────────
@@ -425,6 +551,12 @@ def main():
     m.add_argument("--crf", type=int, default=21, help="H.264 minőség átkódoláskor (alacsonyabb = jobb, alap 21)")
     m.add_argument("--keep-original", action="store_true", help="az eredeti (AV1/VP9) fájlt is megtartja")
     m.add_argument("--delay", type=float, default=1.5, help="szünet letöltések között (mp)")
+    m.add_argument("--transcribe", action="store_true", help="minden letöltött videót átirat is készül (lásd: transcribe subcommand)")
+    m.add_argument("--subs", action="store_true", help="--transcribe: Facebook saját feliratai (yt-dlp)")
+    m.add_argument("--speech", action="store_true", help="--transcribe: beszéd felismerése (faster-whisper)")
+    m.add_argument("--ocr", type=int, metavar="N", help="--transcribe: képkocka N másodpercenként + OCR (ffmpeg+tesseract)")
+    m.add_argument("--lang", default="auto", help="--transcribe: hu|en|auto")
+    m.add_argument("--model", default="small", help="--transcribe: faster-whisper modell")
     m.set_defaults(fn=cmd_media)
 
     t = sub.add_parser("to-md", help="JSON → Markdown")
@@ -448,6 +580,25 @@ def main():
     u.add_argument("--type", choices=SEARCH_TYPES, default="top")
     u.add_argument("--chronological", action="store_true")
     u.set_defaults(fn=cmd_urls)
+
+    tr = sub.add_parser("transcribe", help="felirat / beszéd-felismerés / OCR a videóból")
+    tr.add_argument("file", nargs="?", help="letöltött videófájl")
+    tr.add_argument("--url", help="reel/videó URL (letölti, majd átírja)")
+    tr.add_argument("-o", "--out", default="fb_transcribe")
+    tr.add_argument("--subs", action="store_true", help="Facebook saját feliratai, ha léteznek (yt-dlp) — alapértelmezett, ha semmi mást nem kérsz")
+    tr.add_argument("--speech", action="store_true", help="beszéd felismerése .srt + .txt (faster-whisper)")
+    tr.add_argument("--ocr", type=int, metavar="N", help="képkocka N másodpercenként + OCR, ocr.md (ffmpeg+tesseract)")
+    tr.add_argument("--lang", default="auto", help="hu|en|auto")
+    tr.add_argument("--model", default="small", help="faster-whisper modell (alap: small)")
+    tr.add_argument("--summary", action="store_true", help="jelzi, hogy a hívó (az agent) a transcript.txt-ből fejezet-jegyzeteket ír — ez a parancs nem foglalkozik vele")
+    tr.add_argument("--cookies", help="Netscape cookies.txt (--url esetén, privát videóhoz)")
+    tr.add_argument("--cookies-from-browser", help="pl. chrome, edge, firefox — csak a SAJÁT gépeden!")
+    tr.add_argument("-f", "--format", help="yt-dlp formátum --url letöltéshez")
+    tr.add_argument("--audio-only", action="store_true", help="csak hang; a --speech ebből is tud átírni")
+    tr.add_argument("--any-codec", action="store_true")
+    tr.add_argument("--crf", type=int, default=21)
+    tr.add_argument("--keep-original", action="store_true")
+    tr.set_defaults(fn=cmd_transcribe)
 
     args = ap.parse_args()
     if args.cmd == "media" and not (args.dump or args.url):

@@ -17,9 +17,9 @@ tool's time limit) and return `done:false`. Call them again in a loop instead of
 | `findPost({text, imageAlt, author, url, mark})` | first matching post in the DOM (then in `harvest.store`); digits match without separators ("12.500" = "12500"); scrolls it into view and remembers it as `'last'` → `{found, inDom, url, postId, author, date, snippet, images}` |
 | `q(what, fields, {limit, offset, maxChars, format})` | one line per row, ≤ ~900 chars: `what` = `posts` (visible) · `harvest` · `comments` (of `opts.post`) · `search` · `groups` · `media` (no URLs). `fields` like `['author','date','text:80','reactions','comments','url','id','images','alt','video','sponsored','link','pinned','depth','replyTo']`; `{format:'json'}` → one stable object `{what,total,offset,count,rows:[…]}` with FULL absolute URLs, ISO `date` + `dateApprox` + `dateRaw` (+ `dateConflict`). In line format `url` keeps the identifying query (`/photo?fbid=…`). Truncated output ends with a ready-made `q(…,{offset:N})` continuation |
 | `where()` | one line: page type, scroll %, posts in DOM / store / unread, anchors on screen, overlay, warnings (~60 tok) |
-| `map({limit=12, offset, w=55, unseen, ads, author, date:'MM-DD', by:'author', maxChars=900})` | L0: one line per post, `#anchor` (content hash of author + first 60 chars, stable across scroll / re-render / hoverDates), age, author, text, 👍💬↗, 📷🎬🔗⇄…; `•` unread, `↑` only in the harvest store; ads skipped (counted); header carries `~Ntok` |
-| `async peek(ref?, {chars=350, comments=3, cchars=90})` | L1: shortened text, image alt, link, best comments (pinned / author first); marks the post read. No `ref` → post nearest the screen centre |
-| `async thread(ref?, {top=8, offset, chars=100, only:'author'\|'media'\|'links'\|'replies', match})` | L2: comment outline with `c<n>` numbers, `↳Név←` replies, 📌✍; says how many comments are not loaded |
+| `map({limit=12, offset, w=55, unseen, ads, author, date:'MM-DD', by:'author', maxChars=900, background})` | L0: one line per post, `#anchor` (content hash of author + first 60 chars, stable across scroll / re-render / hoverDates), age, author, text, 👍💬↗, 📷🎬🔗⇄…; `•` unread, `↑` only in the harvest store; ads skipped (counted); header carries `~Ntok`. On a reel page the feed behind the viewer is hidden by default; `background:true` reveals it (tagged `háttér`) |
+| `async peek(ref?, {chars=350, comments=3, cchars=90})` | L1: shortened text, image alt, link, best comments (pinned / author first); marks the post read. No `ref` → post nearest the screen centre (on a reel page: the active reel) |
+| `async thread(ref?, {top=8, offset, chars=100, only:'author'\|'media'\|'links'\|'replies'\|'other', match, bait=true})` | L2: comment outline with `c<n>` numbers, `↳Név←` replies, 📌✍; says how many comments are not loaded. On a reel, `bait!==false` folds a detected keyword-bait funnel into one `🎣` summary line (§ Reel below); `bait:false` lists everything, `only:'other'` only the non-bait replies |
 | `async full(ref?, item?, {offset, maxChars=900})` | L3: complete text of one post, or of comment `'c3'`, paged |
 | `grep(pattern, {where:'posts'\|'comments'\|'all', ctx=35, limit=8})` | folded (accent-insensitive) substring or `/regex/`; lines `#anchor` or `#anchor/c3` + context |
 | `async go(ref)` | scroll the post into view (scrolls a dropped post back first, estimating the distance from `aria-posinset`), reveal and report the real permalink (never the photo link when a post link exists); never clicks. `peek`/`thread`/`full` do the same scroll-back automatically |
@@ -150,10 +150,34 @@ Helpers: `parseFbDate(str)`, `cleanUrl(url)`, `unwrapUrl(url)`, `decodeScrambled
 
 Extension helper (`extension/`): `bridge.js` (isolated world) mirrors the tracked list to `chrome.storage`; `background.js` runs the optional check pass (settings `enabled` (default false), `intervalHours`, quiet hours 22–8, `maxPerDay`), `popup.html` shows the list and the switch.
 
+## Reel (`/reel/<id>`; `fb-reader.min.js`)
+
+A reel page preloads several neighbouring reels at once; everything below works on the **active**
+one only — the one actually playing, or (nothing playing) nearest the viewport centre, never a
+preloaded neighbour. `findPostRoots()`, `extractPost()`, `map`/`peek`/`thread`/`full`/`where`/`go` all
+work on a reel page without any special call — `pageInfo().type === 'reel'` routes them automatically.
+
+| Call | |
+|---|---|
+| `activeReel()` | `{video, unit, id}` of the active reel: the `<video>` element, its post-root ancestor (holds the rail + caption), and the reel id from the URL. `null` off a reel page |
+| `async reel({budgetMs=4000})` | the active reel as a normal post object (`kind:'reel'`; schema below), after expanding "Továbbiak" in the caption. Equivalent to `extractPost(activeReel().unit)` but awaits the caption expansion first |
+| `nav.reelComments()` (write module locator) | tags `[fbr:reel-comments]` on the active reel's own comment button (never a neighbour's) — `find` → click to open the panel; never clicked by the reader |
+| `nav.reelNext()`, `nav.reelPrev()` | tag the next/previous-video arrow `[fbr:reel-next\|reel-prev]` if the fixture/page has one, else report that none was found — never invented, never clicked |
+| `async expandComments({budgetMs=7000})` on a reel | pages the **side comment panel** (`[role="complementary"]`), not the inline thread: clicks its "További hozzászólások N / M" button, ≤4 clicks per call, 1.5–2.5 s apart, then `{clicked, done}`. The panel must already be open (`nav.reelComments()` → click first) |
+| `where()` on a reel | `reel <id> · <mm:ss> · lejátszás\|szünet · <n>/<total> betöltve · kommentpanel: zárva\|nyitva (<loaded>/<total>)` |
+
+**Keyword-bait detection (🎣):** if the pinned comment reads like "írd be X és privátban elküldöm…" and
+≥60% of the top-level replies just repeat that one word, `thread()` folds them into one line
+(`🎣 kulcsszó-kampány: „X" matched/total · szerző válasza: „…" · egyéb hozzászólás: N`) instead of listing
+each copy — the pinned ask and the author's own reply stay visible, only the copies are hidden.
+`thread({bait:false})` restores the full listing; `thread({only:'other'})` keeps just the non-matching
+replies (the genuine questions worth reading).
+
 ## Post object
 
 ```jsonc
 {
+  "kind": "reel" | undefined,            // only present on a reel's post object
   "postId": "1112223334" | "pfbid0…",   // numeric, pfbid, video/reel id
   "url": "https://www.facebook.com/groups/x/posts/…/",  // tracking stripped; may be null on home feed until hoverDates()
   "author": "Kovács Anna", "authorUrl": "…", "authorVerified": false,
@@ -164,12 +188,15 @@ Extension helper (`extension/`): `bridge.js` (isolated world) mirrors the tracke
   "dateMethod": "aria-labelledby|aria-label|visual-decode|innerText|abbr-utime|aria-label-any",
   "text": "…", "textTruncated": false, "sharedText": "…" | null,
   "hashtags": ["#ai"],
+  "chapters": [{"t": "5:29", "title": "Refrén"}],   // reel only: timestamp lines parsed out of the caption
+  "audio": "Eredeti hang" | null,                   // reel only: the caption's audio-credit line, if any
+  "duration": 42.3 | null,                          // reel only: video.duration, if known
   "links": ["https://external.site/…"],     // unwrapped, de-duplicated, no FB-internal links
   "cards": [{"url", "title", "domain", "description"}],   // link previews; decoy cards removed
   "images": [{"src", "alt"}],               // alt = FB's auto description
   "videos": ["https://www.facebook.com/reel/…"], "hasVideo": true,
   "counts": {"reactions": 2200, "comments": 267, "shares": 15, "reactionTypes": {"vicces": 1900, "tetszik": 184}},
-  "position": 3,                            // aria-posinset in the feed
+  "position": 3,                            // aria-posinset in the feed; null on a reel
   "comments": [{
     "author", "authorUrl", "depth": 0, "replyTo": null | "Name",
     "text", "date", "dateRaw",
@@ -180,7 +207,7 @@ Extension helper (`extension/`): `bridge.js` (isolated world) mirrors the tracke
 ```
 
 Envelope: `{tool, version, extractedAt, page: {url, title, heading, type, loggedOut, dialogOpen, warning}, posts, warnings}`.
-`page.type ∈ home group group-search groups-index post video photo event marketplace search profile-or-page`.
+`page.type ∈ home group group-search groups-index post video reel photo event marketplace search profile-or-page`.
 
 ## CLI (Claude Code on the user's machine) — `scripts/fb-capture.mjs`
 
@@ -206,7 +233,13 @@ python3 fb_tool.py media dump.json -o fb_media [--only image,video] [--cookies-f
 python3 fb_tool.py media --url https://www.facebook.com/reel/123 -o fb_media
 python3 fb_tool.py clean-url "<url>"
 python3 fb_tool.py urls search "query" --type people
+python3 fb_tool.py transcribe --url https://www.facebook.com/reel/123 -o out --subs --speech   # captions + speech-to-text
+python3 fb_tool.py transcribe downloaded.mp4 -o out --ocr 5                                     # on-screen text, one frame/5s
+python3 fb_tool.py media --url https://www.facebook.com/reel/123 -o fb_media --transcribe --speech  # download + transcribe in one step
 ```
+`transcribe` needs `yt-dlp` for `--subs` (and for `--url` downloads), `faster-whisper` for `--speech`
+(`pip install faster-whisper`), and `ffmpeg` + `tesseract` (`eng+hun` language data) on `PATH` for
+`--ocr`; a missing tool is reported in `manifest.json`'s per-step `status`, never silently skipped.
 
 ## Install & rebuild
 

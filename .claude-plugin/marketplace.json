@@ -10,7 +10,7 @@
       "name": "facebook-reader",
       "source": "./plugins/facebook-reader",
       "description": "Reads Facebook through your own logged-in browser despite DOM obfuscation: posts, comments + media, groups, search, navigation, reel/video download (yt-dlp).",
-      "version": "0.13.3",
+      "version": "0.14.0",
       "author": { "name": "arlinamid" },
       "category": "productivity",
       "keywords": ["facebook", "scraping", "groups", "comments", "yt-dlp", "reels", "hungarian", "browser"]

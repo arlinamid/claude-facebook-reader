@@ -1,6 +1,6 @@
 {
   "name": "facebook-reader",
-  "version": "0.13.3",
+  "version": "0.14.0",
   "description": "Read Facebook through your own local browser (posts, comments, groups, Marketplace). Codex mode is read-only: native hooks deny possible Facebook writes.",
   "author": { "name": "arlinamid", "url": "https://github.com/arlinamid" },
   "homepage": "https://github.com/arlinamid/claude-facebook-reader",
